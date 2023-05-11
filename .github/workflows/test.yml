@@ -36,4 +36,15 @@ jobs:
       - name: Run unit tests
         run: make testvv
         env:
+
+      - name: Report failures to Slack
+        if: ${{ always() && github.ref == 'refs/heads/main' }}
+        uses: ravsamhq/notify-slack-action@v2
+        with:
+          notification_title: "It seems that my sole purpose in this dismal existence is to spread the gloomy news of broken code and shattered dreams."
+          footer: "I think you ought to know I'm feeling very depressed."
+          status: ${{ job.status }}
+          notify_when: 'failure'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_REPORTING_WEBHOOK }}
           TEST_FLAGS: -race
