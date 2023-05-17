@@ -282,13 +282,13 @@ func NebulaCfg(caCert []byte) []byte {
 	return nebulaCfg
 }
 
-func NebulaCACert() (cert.NebulaCertificate, ed25519.PrivateKey) {
+func NebulaCACert() (*cert.NebulaCertificate, ed25519.PrivateKey) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		panic(err)
 	}
 
-	nc := cert.NebulaCertificate{
+	nc := &cert.NebulaCertificate{
 		Details: cert.NebulaCertificateDetails{
 			Name:      "UnitTesting",
 			Groups:    []string{"testa", "testb"},
@@ -300,7 +300,7 @@ func NebulaCACert() (cert.NebulaCertificate, ed25519.PrivateKey) {
 			IsCA:      true,
 		},
 	}
-	nc.Sign(priv)
+	nc.Sign(nc.Details.Curve, priv)
 
 	return nc, priv
 }
