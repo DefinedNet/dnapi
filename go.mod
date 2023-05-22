@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/sirupsen/logrus v1.9.2
-	github.com/slackhq/nebula v1.7.0
+	github.com/slackhq/nebula v1.7.1
 	github.com/stretchr/testify v1.8.2
 	golang.org/x/crypto v0.9.0
 	gopkg.in/yaml.v2 v2.4.0
