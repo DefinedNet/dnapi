@@ -61,3 +61,35 @@ type EnrollResponseDataOrg struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
+
+type DownloadsResponse struct {
+	// DNClient maps versions to a map of platforms' download links.
+	DNClient map[string]map[string]string `json:"dnclient"`
+	// Mobile maps platforms to their download links (i.e. App Store / Play Store.)
+	Mobile DownloadsResponseMobile `json:"mobile"`
+
+	// VersionInfo contains information about past versions.
+	VersionInfo DownloadsResponseVersionInfo `json:"versionInfo"`
+}
+
+type DownloadsResponseVersionInfo struct {
+	// DNClient maps versions to their version info.
+	DNClient map[string]DNClientVersionInfo `json:"dnclient"`
+	// Latest returns the latest versions for each platform.
+	Latest DownloadsResponseLatest `json:"latest"`
+}
+
+type DownloadsResponseMobile struct {
+	Android string `json:"android"`
+	IOS     string `json:"ios"`
+}
+
+type DownloadsResponseLatest struct {
+	DNClient string `json:"string"`
+	Mobile   string `json:"mobile"`
+}
+
+type DNClientVersionInfo struct {
+	Latest      bool   `json:"latest"`
+	ReleaseDate string `json:"releaseDate"`
+}
