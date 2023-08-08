@@ -63,6 +63,13 @@ type EnrollResponseDataOrg struct {
 }
 
 type DownloadsResponse struct {
+	// Only one of Data or Errors should be set in a response
+	Data DownloadsResponseData `json:"data"`
+
+	Errors APIErrors `json:"errors"`
+}
+
+type DownloadsResponseData struct {
 	// DNClient maps versions to a map of platforms' download links.
 	DNClient map[string]map[string]string `json:"dnclient"`
 	// Mobile maps platforms to their download links (i.e. App Store / Play Store.)
@@ -85,7 +92,7 @@ type DownloadsResponseMobile struct {
 }
 
 type DownloadsResponseLatest struct {
-	DNClient string `json:"string"`
+	DNClient string `json:"dnclient"`
 	Mobile   string `json:"mobile"`
 }
 
