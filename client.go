@@ -251,6 +251,44 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	return result.Config, dhPrivkeyPEM, newCreds, nil
 }
 
+// DetermineLatestVersion returns the latest version information.
+func (c *Client) DetermineLatestVersion(ctx context.Context, logger logrus.FieldLogger) (*message.DownloadsResponseLatest, error) {
+	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Finding latest DNClient version")
+
+	req, err := http.NewRequestWithContext(ctx, "GET", c.dnServer+message.EnrollEndpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Log the request ID returned from the server
+	reqID := resp.Header.Get("X-Request-ID")
+	logger.WithFields(logrus.Fields{"reqID": reqID}).Debug("Request for latest DNClient version complete")
+
+	// Decode the response
+	r := message.DownloadsResponse{}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &APIError{e: fmt.Errorf("error reading response body: %s", err), ReqID: reqID}
+	}
+
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+	}
+
+	// Check for any errors returned by the API
+	if err := r.Errors.ToError(); err != nil {
+		return nil, &APIError{e: fmt.Errorf("unexpected error during downloads fetch: %v", err), ReqID: reqID}
+	}
+
+	return &r.Data.VersionInfo.Latest, nil
+}
+
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
 func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) ([]byte, error) {
