@@ -184,27 +184,6 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "no supported actions", http.StatusInternalServerError)
 			return
 		}
-
-		if len(longPoll.Client.Identifier) == 0 {
-			s.errors = append(s.errors, fmt.Errorf("no client identifier"))
-			http.Error(w, "no supported actions", http.StatusInternalServerError)
-			return
-		}
-		if len(longPoll.Client.Version) == 0 {
-			s.errors = append(s.errors, fmt.Errorf("no client version"))
-			http.Error(w, "no supported actions", http.StatusInternalServerError)
-			return
-		}
-		if len(longPoll.Client.OS) == 0 {
-			s.errors = append(s.errors, fmt.Errorf("no no client os"))
-			http.Error(w, "no supported actions", http.StatusInternalServerError)
-			return
-		}
-		if len(longPoll.Client.Architecture) == 0 {
-			s.errors = append(s.errors, fmt.Errorf("no client architecture"))
-			http.Error(w, "no supported actions", http.StatusInternalServerError)
-			return
-		}
 	}
 
 	// return the associated response

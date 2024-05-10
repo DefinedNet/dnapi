@@ -170,9 +170,8 @@ func (c *Client) CheckForUpdate(ctx context.Context, creds Credentials) (bool, e
 
 // LongPollWait sends a signed message to a DNClient API endpoint that will block, returning only
 // if there is an action the client should take before the timeout (config updates, debug commands)
-func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedActions []string, clientInfo message.ClientInfo) (string, error) {
+func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedActions []string) (string, error) {
 	value, err := json.Marshal(message.LongPollWaitRequest{
-		Client:           clientInfo,
 		SupportedActions: supportedActions,
 	})
 	if err != nil {

@@ -81,8 +81,7 @@ type LongPollWaitResponseWrapper struct {
 
 // LongPollWaitRequest is the request message associated with a LongPollWait call.
 type LongPollWaitRequest struct {
-	Client           ClientInfo `json:"client"`
-	SupportedActions []string   `json:"supportedActions"`
+	SupportedActions []string `json:"supportedActions"`
 }
 
 // DNClientLongPollResponse is the response message associated with a LongPollWait call.
