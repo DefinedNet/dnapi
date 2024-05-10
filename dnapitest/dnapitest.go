@@ -155,7 +155,8 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg.Type == message.DoUpdate {
+	switch msg.Type {
+	case message.DoUpdate:
 		var updateKeys message.DoUpdateRequest
 		err = json.Unmarshal(msg.Value, &updateKeys)
 		if err != nil {
@@ -167,6 +168,41 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 		if err := s.SetEdPubkey(updateKeys.EdPubkeyPEM); err != nil {
 			s.errors = append(s.errors, err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case message.LongPollWait:
+		var longPoll message.LongPollWaitRequest
+		err = json.Unmarshal(msg.Value, &longPoll)
+		if err != nil {
+			s.errors = append(s.errors, fmt.Errorf("failed to unmarshal LongPollWaitRequest: %w", err))
+			http.Error(w, "failed to unmarshal LongPollWaitRequest", http.StatusInternalServerError)
+			return
+		}
+
+		if len(longPoll.SupportedActions) == 0 {
+			s.errors = append(s.errors, fmt.Errorf("no supported actions"))
+			http.Error(w, "no supported actions", http.StatusInternalServerError)
+			return
+		}
+
+		if len(longPoll.Client.Identifier) == 0 {
+			s.errors = append(s.errors, fmt.Errorf("no client identifier"))
+			http.Error(w, "no supported actions", http.StatusInternalServerError)
+			return
+		}
+		if len(longPoll.Client.Version) == 0 {
+			s.errors = append(s.errors, fmt.Errorf("no client version"))
+			http.Error(w, "no supported actions", http.StatusInternalServerError)
+			return
+		}
+		if len(longPoll.Client.OS) == 0 {
+			s.errors = append(s.errors, fmt.Errorf("no no client os"))
+			http.Error(w, "no supported actions", http.StatusInternalServerError)
+			return
+		}
+		if len(longPoll.Client.Architecture) == 0 {
+			s.errors = append(s.errors, fmt.Errorf("no client architecture"))
+			http.Error(w, "no supported actions", http.StatusInternalServerError)
 			return
 		}
 	}
