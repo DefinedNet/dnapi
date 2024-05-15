@@ -10,6 +10,7 @@ import (
 const (
 	CheckForUpdate = "CheckForUpdate"
 	DoUpdate       = "DoUpdate"
+	LongPollWait   = "LongPollWait"
 )
 
 // EndpointV1 is the version 1 DNClient API endpoint.
@@ -71,6 +72,28 @@ type DoUpdateResponse struct {
 	Counter     uint   `json:"counter"`
 	Nonce       []byte `json:"nonce"`
 	TrustedKeys []byte `json:"trustedKeys"`
+}
+
+// LongPollWaitResponseWrapper contains a response to LongPollWawit inside "data."
+type LongPollWaitResponseWrapper struct {
+	Data LongPollWaitResponse `json:"data"`
+}
+
+// LongPollWaitRequest is the request message associated with a LongPollWait call.
+type LongPollWaitRequest struct {
+	SupportedActions []string `json:"supportedActions"`
+}
+
+// DNClientLongPollResponse is the response message associated with a LongPollWait call.
+type LongPollWaitResponse struct {
+	Action string `json:"action"` // e.g. NoOp, StreamLogs, DoUpdate
+}
+
+type ClientInfo struct {
+	Identifier   string `json:"identifier"`
+	Version      string `json:"version"`
+	OS           string `json:"os"`
+	Architecture string `json:"architecture"`
 }
 
 // EnrollEndpoint is the REST enrollment endpoint.
