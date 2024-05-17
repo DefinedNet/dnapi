@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,9 +39,9 @@ func NewClient(useragent string, dnServer string) *Client {
 	}
 }
 
-// APIError contains an error, and a hidden wrapped error that contains the RequestID
-// contained in the X-Request-ID header of an API response. Defaults to empty string
-// if the header is not in the response.
+// APIError wraps an error and contains the RequestID from the X-Request-ID
+// header of an API response. ReqID defaults to empty string  if the header is
+// not in the response.
 type APIError struct {
 	e     error
 	ReqID string
@@ -276,27 +275,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
 func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) ([]byte, error) {
-	encMsg, err := json.Marshal(message.RequestWrapper{
-		Type:      reqType,
-		Value:     value,
-		Timestamp: time.Now(),
-	})
+	postBody, err := SignRequestV1(reqType, value, hostID, counter, privkey)
 	if err != nil {
 		return nil, err
 	}
-	signedMsg := base64.StdEncoding.EncodeToString(encMsg)
-	sig := ed25519.Sign(privkey, []byte(signedMsg))
-	body := message.RequestV1{
-		Version:   1,
-		HostID:    hostID,
-		Counter:   counter,
-		Message:   signedMsg,
-		Signature: sig,
-	}
-	postBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, bytes.NewReader(postBody))
 	if err != nil {
 		return nil, err
