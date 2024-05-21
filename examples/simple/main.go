@@ -26,7 +26,9 @@ func main() {
 	c := dnapi.NewClient("api-example/1.0", *server)
 
 	// initial enrollment example
-	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	config, pkey, creds, meta, err := c.Enroll(ctx, logger, *code)
 	if err != nil {
 		logger.WithError(err).Error("Failed to enroll")
 	}
@@ -51,7 +53,9 @@ func main() {
 		time.Sleep(60 * time.Second)
 
 		// check for an update and perform the update if available
-		updateAvailable, err := c.CheckForUpdate(context.Background(), *creds)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		updateAvailable, err := c.CheckForUpdate(ctx, *creds)
 		if err != nil {
 			logger.WithError(err).Error("Failed to check for update")
 			continue
@@ -61,7 +65,9 @@ func main() {
 			// be careful not to blow away creds in case err != nil
 			// another option is to pass credentials by reference and let DoUpdate modify the struct if successful but
 			// this makes it less obvious to the caller that they need to save the new credentials to disk
-			config, pkey, newCreds, err := c.DoUpdate(context.Background(), *creds)
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			config, pkey, newCreds, err := c.DoUpdate(ctx, *creds)
 			if err != nil {
 				logger.WithError(err).Error("Failed to perform update")
 				continue
