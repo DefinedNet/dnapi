@@ -299,23 +299,19 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 
 	done := make(chan struct{})
 	sc := &StreamController{w: pw, done: done}
-	fmt.Println("starting goroutine")
 
 	go func() {
-		fmt.Println("calling Do")
 		resp, err := c.http.Do(req)
 		if err != nil {
 			sc.err = fmt.Errorf("failed to call dnclient endpoint: %s", err)
 			return
 		}
 		defer resp.Body.Close()
-		fmt.Println("Do-nezo")
 
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			sc.err = fmt.Errorf("failed to read the response body: %s", err)
 		}
-		fmt.Println("reading body")
 
 		switch resp.StatusCode {
 		case http.StatusOK:
