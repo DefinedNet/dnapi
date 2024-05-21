@@ -375,7 +375,6 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 type StreamController struct {
 	w         *io.PipeWriter
 	respBytes []byte
-	readResp  bool
 	err       error
 	done      chan struct{}
 }
@@ -401,9 +400,7 @@ func (c *StreamController) ResponseBytes() ([]byte, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
-	if !c.readResp {
-		return nil, fmt.Errorf("response not yet read")
-	}
+	<-c.done
 	return c.respBytes, nil
 }
 
