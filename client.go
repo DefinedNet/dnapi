@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -27,10 +28,15 @@ type Client struct {
 func NewClient(useragent string, dnServer string) *Client {
 	return &Client{
 		http: &http.Client{
-			Timeout: 1 * time.Minute,
+			Timeout: 15 * time.Minute,
 			Transport: &uaTransport{
 				T: &http.Transport{
-					Proxy: http.ProxyFromEnvironment,
+					Proxy:                 http.ProxyFromEnvironment,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ResponseHeaderTimeout: 10 * time.Second,
+					DialContext: (&net.Dialer{
+						Timeout: 10 * time.Second,
+					}).DialContext,
 				},
 				useragent: useragent,
 			},
@@ -64,12 +70,6 @@ func (e InvalidCredentialsError) Error() string {
 type EnrollMeta struct {
 	OrganizationID   string
 	OrganizationName string
-}
-
-func (c *Client) EnrollWithTimeout(ctx context.Context, t time.Duration, logger logrus.FieldLogger, code string) ([]byte, []byte, *Credentials, *EnrollMeta, error) {
-	toCtx, cancel := context.WithTimeout(ctx, t)
-	defer cancel()
-	return c.Enroll(toCtx, logger, code)
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -147,12 +147,6 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	return r.Data.Config, dhPrivkeyPEM, creds, meta, nil
 }
 
-func (c *Client) CheckForUpdateWithTimeout(ctx context.Context, t time.Duration, creds Credentials) (bool, error) {
-	toCtx, cancel := context.WithTimeout(ctx, t)
-	defer cancel()
-	return c.CheckForUpdate(toCtx, creds)
-}
-
 // CheckForUpdate sends a signed message to the DNClient API to learn if there is a new configuration available.
 func (c *Client) CheckForUpdate(ctx context.Context, creds Credentials) (bool, error) {
 	respBody, err := c.postDNClient(ctx, message.CheckForUpdate, nil, creds.HostID, creds.Counter, creds.PrivateKey)
@@ -187,12 +181,6 @@ func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedA
 		return "", fmt.Errorf("failed to interpret API response: %s", err)
 	}
 	return result.Data.Action, nil
-}
-
-func (c *Client) DoUpdateWithTimeout(ctx context.Context, t time.Duration, creds Credentials) ([]byte, []byte, *Credentials, error) {
-	toCtx, cancel := context.WithTimeout(ctx, t)
-	defer cancel()
-	return c.DoUpdate(toCtx, creds)
 }
 
 // DoUpdate sends a signed message to the DNClient API to fetch the new configuration update. During this call a new
@@ -272,7 +260,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	return result.Config, dhPrivkeyPEM, newCreds, nil
 }
 
-func (c *Client) StreamLogs(ctx context.Context, creds Credentials, responseToken string) (*StreamController, error) {
+func (c *Client) StreamCommandResponse(ctx context.Context, creds Credentials, responseToken string) (*StreamController, error) {
 	value, err := json.Marshal(message.CommandResponseRequest{
 		ResponseToken: responseToken,
 	})
@@ -283,6 +271,8 @@ func (c *Client) StreamLogs(ctx context.Context, creds Credentials, responseToke
 	return c.streamingPostDNClient(ctx, message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
 }
 
+// streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
+// On success, it returns a StreamController to interact with the request. On error, the error is returned.
 func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) (*StreamController, error) {
 	pr, pw := io.Pipe()
 
@@ -372,6 +362,11 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 }
 
+// StreamController is used for interacting with streaming requests to the API.
+//
+// When a streaming request is started in a background goroutine, a StreamController is returned to the caller to allow
+// writing to the request body. The request will be sent when the caller closes the StreamController. The response body
+// can be read by calling ResponseBytes, which will block until the response is received.
 type StreamController struct {
 	w         *io.PipeWriter
 	respBytes []byte
@@ -379,10 +374,15 @@ type StreamController struct {
 	done      chan struct{}
 }
 
+// Err returns any error that occurred during the streaming request. If the request was successful, Err will return nil.
+// Err should be called after Close to ensure the request has completed.
 func (c *StreamController) Err() error {
 	return c.err
 }
 
+// Write implements the io.Writer interface for StreamController. It writes to the request body. It never returns an
+// error. If the StreamController has already encountered an error, Write will return immediately without writing.
+// To check for errors, call Err.
 func (c *StreamController) Write(p []byte) (n int, err error) {
 	if c.err != nil {
 		return 0, c.err
@@ -390,12 +390,15 @@ func (c *StreamController) Write(p []byte) (n int, err error) {
 	return c.w.Write(p)
 }
 
+// Close closes the StreamController, signaling that the request body is complete and the response can be read.
 func (c *StreamController) Close() error {
 	err := c.w.Close()
 	<-c.done
 	return err
 }
 
+// ResponseBytes blocks until the response is received, then returns the response body. If an error occurred during the
+// request, ResponseBytes will return the error.
 func (c *StreamController) ResponseBytes() ([]byte, error) {
 	if c.err != nil {
 		return nil, c.err
@@ -404,6 +407,7 @@ func (c *StreamController) ResponseBytes() ([]byte, error) {
 	return c.respBytes, nil
 }
 
+// uaTransport wraps an http.RoundTripper and sets the User-Agent header on all requests.
 type uaTransport struct {
 	useragent string
 	T         http.RoundTripper

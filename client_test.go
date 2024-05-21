@@ -74,7 +74,9 @@ func TestEnroll(t *testing.T) {
 		})
 	})
 
-	cfg, pkey, creds, meta, err := client.EnrollWithTimeout(context.Background(), 1*time.Second, testutil.NewTestLogger(), code)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	cfg, pkey, creds, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -119,7 +121,9 @@ func TestEnroll(t *testing.T) {
 		})
 	})
 
-	cfg, pkey, creds, meta, err = client.EnrollWithTimeout(context.Background(), 1*time.Second, testutil.NewTestLogger(), code)
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	cfg, pkey, creds, meta, err = client.Enroll(ctx, testutil.NewTestLogger(), code)
 	require.Errorf(t, err, fmt.Sprintf("unexpected error during enrollment: %s", errorMsg))
 
 	assert.Nil(t, cfg)
@@ -176,7 +180,9 @@ func TestDoUpdate(t *testing.T) {
 		})
 	})
 
-	config, pkey, creds, _, err := c.EnrollWithTimeout(context.Background(), 1*time.Second, testutil.NewTestLogger(), "foobar")
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
 	pubkey := cert.MarshalEd25519PublicKey(creds.PrivateKey.Public().(ed25519.PublicKey))
@@ -205,7 +211,10 @@ func TestDoUpdate(t *testing.T) {
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
-	_, err = c.CheckForUpdateWithTimeout(context.Background(), 1*time.Second, invalidCreds)
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, err = c.CheckForUpdate(ctx, invalidCreds)
 	assert.Error(t, err)
 	invalidCredsErrorType := InvalidCredentialsError{}
 	assert.ErrorAs(t, err, &invalidCredsErrorType)
@@ -237,7 +246,10 @@ func TestDoUpdate(t *testing.T) {
 			},
 		})
 	})
-	cfg, pkey, newCreds, err := c.DoUpdateWithTimeout(context.Background(), 1*time.Second, *creds)
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	cfg, pkey, newCreds, err := c.DoUpdate(ctx, *creds)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -267,7 +279,10 @@ func TestDoUpdate(t *testing.T) {
 			},
 		})
 	})
-	cfg, pkey, newCreds, err = c.DoUpdateWithTimeout(context.Background(), 1*time.Second, *creds)
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	cfg, pkey, newCreds, err = c.DoUpdate(ctx, *creds)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -293,14 +308,16 @@ func TestDoUpdate(t *testing.T) {
 		})
 	})
 
-	_, _, _, err = c.DoUpdateWithTimeout(context.Background(), 1*time.Second, *creds)
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, _, err = c.DoUpdate(ctx, *creds)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
 }
 
-func TestStreamLogs(t *testing.T) {
+func TestStreamCommandResponse(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
@@ -344,7 +361,9 @@ func TestStreamLogs(t *testing.T) {
 		})
 	})
 
-	config, pkey, creds, _, err := c.EnrollWithTimeout(context.Background(), 1*time.Second, testutil.NewTestLogger(), "foobar")
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -365,7 +384,7 @@ func TestStreamLogs(t *testing.T) {
 		return jsonMarshal(struct{}{})
 	})
 
-	sc, err := c.StreamLogs(context.Background(), *creds, "FIXME responseToken")
+	sc, err := c.StreamCommandResponse(context.Background(), *creds, "FIXME responseToken")
 	require.NoError(t, err)
 
 	// Configure a logger to write to a buffer and the stream
@@ -405,8 +424,8 @@ func TestTimeout(t *testing.T) {
 
 	useragent := "TestTimeout agent"
 	c := NewClient(useragent, ts.URL)
-	// The default timeout is 1 minute. Assert the default value.
-	assert.Equal(t, c.http.Timeout, time.Minute)
+	// The default timeout is 15 minutes. Assert the default value.
+	assert.Equal(t, c.http.Timeout, 15*time.Minute)
 	// Overwrite the default value with a 10 millisecond timeout for test brevity.
 	c.http.Timeout = 10 * time.Millisecond
 	// DO IT
@@ -425,6 +444,8 @@ func TestRequestTimeout(t *testing.T) {
 	useragent := "TestTimeout agent"
 	c := NewClient(useragent, ts.URL)
 	// DO IT
-	_, _, _, _, err := c.EnrollWithTimeout(context.Background(), 1*time.Millisecond, testutil.NewTestLogger(), "ABC123")
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
