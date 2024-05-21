@@ -272,6 +272,71 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	return result.Config, dhPrivkeyPEM, newCreds, nil
 }
 
+func (c *Client) StreamLogs(ctx context.Context, creds Credentials, responseToken string) (*StreamController, error) {
+	value, err := json.Marshal(message.CommandResponseRequest{
+		ResponseToken: responseToken,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	return c.streamingPostDNClient(ctx, message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
+}
+
+func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) (*StreamController, error) {
+	pr, pw := io.Pipe()
+
+	postBody, err := SignRequestV1(reqType, value, hostID, counter, privkey)
+	if err != nil {
+		return nil, err
+	}
+	pbb := bytes.NewBuffer(postBody)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, io.MultiReader(pbb, pr))
+	if err != nil {
+		return nil, err
+	}
+
+	done := make(chan struct{})
+	sc := &StreamController{w: pw, done: done}
+	fmt.Println("starting goroutine")
+
+	go func() {
+		fmt.Println("calling Do")
+		resp, err := c.http.Do(req)
+		if err != nil {
+			sc.err = fmt.Errorf("failed to call dnclient endpoint: %s", err)
+			return
+		}
+		defer resp.Body.Close()
+		fmt.Println("Do-nezo")
+
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			sc.err = fmt.Errorf("failed to read the response body: %s", err)
+		}
+		fmt.Println("reading body")
+
+		switch resp.StatusCode {
+		case http.StatusOK:
+			sc.respBytes = respBody
+		case http.StatusUnauthorized:
+			sc.err = InvalidCredentialsError{}
+		default:
+			var errors struct {
+				Errors message.APIErrors
+			}
+			if err := json.Unmarshal(respBody, &errors); err != nil {
+				sc.err = fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
+			}
+			sc.err = errors.Errors.ToError()
+		}
+		close(done)
+	}()
+
+	return sc, nil
+}
+
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
 func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) ([]byte, error) {
@@ -309,6 +374,41 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		}
 		return nil, errors.Errors.ToError()
 	}
+}
+
+type StreamController struct {
+	w         *io.PipeWriter
+	respBytes []byte
+	readResp  bool
+	err       error
+	done      chan struct{}
+}
+
+func (c *StreamController) Err() error {
+	return c.err
+}
+
+func (c *StreamController) Write(p []byte) (n int, err error) {
+	if c.err != nil {
+		return 0, c.err
+	}
+	return c.w.Write(p)
+}
+
+func (c *StreamController) Close() error {
+	err := c.w.Close()
+	<-c.done
+	return err
+}
+
+func (c *StreamController) ResponseBytes() ([]byte, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	if !c.readResp {
+		return nil, fmt.Errorf("response not yet read")
+	}
+	return c.respBytes, nil
 }
 
 type uaTransport struct {

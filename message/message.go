@@ -8,9 +8,10 @@ import (
 
 // DNClient API message types
 const (
-	CheckForUpdate = "CheckForUpdate"
-	DoUpdate       = "DoUpdate"
-	LongPollWait   = "LongPollWait"
+	CheckForUpdate  = "CheckForUpdate"
+	DoUpdate        = "DoUpdate"
+	LongPollWait    = "LongPollWait"
+	CommandResponse = "CommandResponse"
 )
 
 // EndpointV1 is the version 1 DNClient API endpoint.
@@ -74,7 +75,7 @@ type DoUpdateResponse struct {
 	TrustedKeys []byte `json:"trustedKeys"`
 }
 
-// LongPollWaitResponseWrapper contains a response to LongPollWawit inside "data."
+// LongPollWaitResponseWrapper contains a response to LongPollWait inside "data."
 type LongPollWaitResponseWrapper struct {
 	Data LongPollWaitResponse `json:"data"`
 }
@@ -84,10 +85,23 @@ type LongPollWaitRequest struct {
 	SupportedActions []string `json:"supportedActions"`
 }
 
-// DNClientLongPollResponse is the response message associated with a LongPollWait call.
+// LongPollWaitResponse is the response message associated with a LongPollWait call.
 type LongPollWaitResponse struct {
 	Action string `json:"action"` // e.g. NoOp, StreamLogs, DoUpdate
 }
+
+// CommandResponseResponseWrapper contains a response to CommandResponse inside "data."
+type CommandResponseResponseWrapper struct {
+	Data CommandResponseResponse `json:"data"`
+}
+
+// CommandResponseRequest is the request message associated with a CommandResponse call.
+type CommandResponseRequest struct {
+	ResponseToken string `json:"responseToken"`
+}
+
+// DNClientCommandResponseResponse is the response message associated with a CommandResponse call.
+type CommandResponseResponse struct{}
 
 type ClientInfo struct {
 	Identifier   string `json:"identifier"`

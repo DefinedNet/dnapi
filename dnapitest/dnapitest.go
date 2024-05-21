@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,8 @@ type Server struct {
 
 	expectedEdPubkey  ed25519.PublicKey
 	expectedUserAgent string
+
+	streamedBody []byte
 }
 
 func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
@@ -117,8 +120,10 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 	}
 	res := expected.dncRequestResponse
 
+	jd := json.NewDecoder(r.Body)
+
 	req := message.RequestV1{}
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err := jd.Decode(&req)
 	if err != nil {
 		s.errors = append(s.errors, fmt.Errorf("failed to decode request: %w", err))
 		http.Error(w, "failed to decode request", http.StatusInternalServerError)
@@ -170,6 +175,7 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 	case message.LongPollWait:
 		var longPoll message.LongPollWaitRequest
 		err = json.Unmarshal(msg.Value, &longPoll)
@@ -184,6 +190,27 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "no supported actions", http.StatusInternalServerError)
 			return
 		}
+
+	case message.CommandResponse:
+		var cmdResponse message.CommandResponseRequest
+		err = json.Unmarshal(msg.Value, &cmdResponse)
+		if err != nil {
+			s.errors = append(s.errors, fmt.Errorf("failed to unmarshal StreamLogsRequest: %w", err))
+			http.Error(w, "failed to unmarshal CommandResponse", http.StatusInternalServerError)
+			return
+		}
+
+	}
+
+	if expected.isStreamingRequest {
+		s.streamedBody, err = io.ReadAll(io.MultiReader(jd.Buffered(), r.Body))
+		if err != nil {
+			s.errors = append(s.errors, fmt.Errorf("failed to read body: %w", err))
+			http.Error(w, "failed to read body", http.StatusInternalServerError)
+			return
+		}
+
+		return
 	}
 
 	// return the associated response
@@ -210,6 +237,17 @@ func (s *Server) ExpectRequest(msgType string, response func(r message.RequestWr
 	})
 }
 
+func (s *Server) ExpectStreamingRequest(msgType string, response func(r message.RequestWrapper) []byte) {
+	s.expectedRequests = append(s.expectedRequests, requestResponse{
+		dnclientAPI:        true,
+		isStreamingRequest: true,
+		dncRequestResponse: dncRequestResponse{
+			expectedType: msgType,
+			response:     response,
+		},
+	})
+}
+
 func (s *Server) Errors() []error {
 	defer func() {
 		s.errors = []error{}
@@ -220,6 +258,14 @@ func (s *Server) Errors() []error {
 
 func (s *Server) RequestsRemaining() int {
 	return len(s.expectedRequests)
+}
+
+func (s *Server) ExpectedRequests() []requestResponse {
+	return s.expectedRequests
+}
+
+func (s *Server) LastStreamedBody() []byte {
+	return s.streamedBody
 }
 
 func NewServer(expectedUserAgent string) *Server {
@@ -238,6 +284,7 @@ type requestResponse struct {
 	dnclientAPI           bool
 	dncRequestResponse    dncRequestResponse
 	enrollRequestResponse enrollRequestResponse
+	isStreamingRequest    bool
 }
 
 type enrollRequestResponse struct {

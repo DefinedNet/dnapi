@@ -1,11 +1,13 @@
 package dnapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"github.com/DefinedNet/dnapi/dnapitest"
 	"github.com/DefinedNet/dnapi/internal/testutil"
 	"github.com/DefinedNet/dnapi/message"
+	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/cert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -295,6 +298,93 @@ func TestDoUpdate(t *testing.T) {
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
+}
+
+func TestStreamLogs(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, _ := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalToPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	code := "foobar"
+	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{
+			// we need to send this or we'll get an error from the api client
+			"pki": m{"ca": string(caPEM)},
+			// here we reflect values back to the client for test purposes
+			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+		})
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
+					Message: "failed to marshal test response config",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.EnrollResponse{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: cert.MarshalEd25519PublicKey(ca.Details.PublicKey),
+				Organization: message.EnrollResponseDataOrg{
+					ID:   "foobaz",
+					Name: "foobar's foo org",
+				},
+			},
+		})
+	})
+
+	config, pkey, creds, _, err := c.EnrollWithTimeout(context.Background(), 1*time.Second, testutil.NewTestLogger(), "foobar")
+	require.NoError(t, err)
+
+	// make sure all credential values were set
+	assert.NotEmpty(t, creds.HostID)
+	assert.NotEmpty(t, creds.PrivateKey)
+	assert.NotEmpty(t, creds.TrustedKeys)
+	assert.NotEmpty(t, creds.Counter)
+
+	// make sure we got a config back
+	assert.NotEmpty(t, config)
+	assert.NotEmpty(t, pkey)
+
+	// Buffer that will store the logs sent to the service for verification
+	var buf bytes.Buffer
+
+	// This time sign the response with the correct CA key.
+	ts.ExpectStreamingRequest(message.CommandResponse, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(struct{}{})
+	})
+
+	sc, err := c.StreamLogs(context.Background(), *creds, "FIXME responseToken")
+	require.NoError(t, err)
+
+	// Configure a logger to write to a buffer and the stream
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+	logger.SetOutput(io.MultiWriter(sc, &buf))
+	logger.SetLevel(logrus.DebugLevel)
+
+	logger.Info("Hello, world! info!")
+	logger.Warn("Hello, world! warning!")
+
+	err = sc.Close()
+	require.NoError(t, err)
+	require.NoError(t, sc.Err())
+
+	require.Equal(t, buf.Bytes(), ts.LastStreamedBody())
+
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining(), ts.ExpectedRequests())
 }
 
 func jsonMarshal(v interface{}) []byte {
