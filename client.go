@@ -5,11 +5,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/DefinedNet/dnapi/message"
@@ -19,19 +20,40 @@ import (
 
 // Client communicates with the API server.
 type Client struct {
-	http     *http.Client
 	dnServer string
+
+	client          *http.Client
+	streamingClient *http.Client
 }
 
 // NewClient returns new Client configured with the given useragent.
 // It also supports reading Proxy information from the environment.
 func NewClient(useragent string, dnServer string) *Client {
 	return &Client{
-		http: &http.Client{
+		client: &http.Client{
 			Timeout: 1 * time.Minute,
 			Transport: &uaTransport{
 				T: &http.Transport{
-					Proxy: http.ProxyFromEnvironment,
+					Proxy:                 http.ProxyFromEnvironment,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ResponseHeaderTimeout: 10 * time.Second,
+					DialContext: (&net.Dialer{
+						Timeout: 10 * time.Second,
+					}).DialContext,
+				},
+				useragent: useragent,
+			},
+		},
+		streamingClient: &http.Client{
+			Timeout: 15 * time.Minute,
+			Transport: &uaTransport{
+				T: &http.Transport{
+					Proxy:                 http.ProxyFromEnvironment,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ResponseHeaderTimeout: 10 * time.Second,
+					DialContext: (&net.Dialer{
+						Timeout: 10 * time.Second,
+					}).DialContext,
 				},
 				useragent: useragent,
 			},
@@ -40,9 +62,9 @@ func NewClient(useragent string, dnServer string) *Client {
 	}
 }
 
-// APIError contains an error, and a hidden wrapped error that contains the RequestID
-// contained in the X-Request-ID header of an API response. Defaults to empty string
-// if the header is not in the response.
+// APIError wraps an error and contains the RequestID from the X-Request-ID
+// header of an API response. ReqID defaults to empty string  if the header is
+// not in the response.
 type APIError struct {
 	e     error
 	ReqID string
@@ -65,12 +87,6 @@ func (e InvalidCredentialsError) Error() string {
 type EnrollMeta struct {
 	OrganizationID   string
 	OrganizationName string
-}
-
-func (c *Client) EnrollWithTimeout(ctx context.Context, t time.Duration, logger logrus.FieldLogger, code string) ([]byte, []byte, *Credentials, *EnrollMeta, error) {
-	toCtx, cancel := context.WithTimeout(ctx, t)
-	defer cancel()
-	return c.Enroll(toCtx, logger, code)
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -103,7 +119,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, err
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -148,12 +164,6 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	return r.Data.Config, dhPrivkeyPEM, creds, meta, nil
 }
 
-func (c *Client) CheckForUpdateWithTimeout(ctx context.Context, t time.Duration, creds Credentials) (bool, error) {
-	toCtx, cancel := context.WithTimeout(ctx, t)
-	defer cancel()
-	return c.CheckForUpdate(toCtx, creds)
-}
-
 // CheckForUpdate sends a signed message to the DNClient API to learn if there is a new configuration available.
 func (c *Client) CheckForUpdate(ctx context.Context, creds Credentials) (bool, error) {
 	respBody, err := c.postDNClient(ctx, message.CheckForUpdate, nil, creds.HostID, creds.Counter, creds.PrivateKey)
@@ -188,12 +198,6 @@ func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedA
 		return "", fmt.Errorf("failed to interpret API response: %s", err)
 	}
 	return result.Data.Action, nil
-}
-
-func (c *Client) DoUpdateWithTimeout(ctx context.Context, t time.Duration, creds Credentials) ([]byte, []byte, *Credentials, error) {
-	toCtx, cancel := context.WithTimeout(ctx, t)
-	defer cancel()
-	return c.DoUpdate(toCtx, creds)
 }
 
 // DoUpdate sends a signed message to the DNClient API to fetch the new configuration update. During this call a new
@@ -273,35 +277,85 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	return result.Config, dhPrivkeyPEM, newCreds, nil
 }
 
+func (c *Client) StreamCommandResponse(ctx context.Context, creds Credentials, responseToken string) (*StreamController, error) {
+	value, err := json.Marshal(message.CommandResponseRequest{
+		ResponseToken: responseToken,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	return c.streamingPostDNClient(ctx, message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
+}
+
+// streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
+// On success, it returns a StreamController to interact with the request. On error, the error is returned.
+func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) (*StreamController, error) {
+	pr, pw := io.Pipe()
+
+	postBody, err := SignRequestV1(reqType, value, hostID, counter, privkey)
+	if err != nil {
+		return nil, err
+	}
+	pbb := bytes.NewBuffer(postBody)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, io.MultiReader(pbb, pr))
+	if err != nil {
+		return nil, err
+	}
+
+	done := make(chan struct{})
+	sc := &StreamController{w: pw, done: done}
+
+	go func() {
+		defer func() {
+			close(done)
+		}()
+
+		resp, err := c.streamingClient.Do(req)
+		if err != nil {
+			sc.err.Store(fmt.Errorf("failed to call dnclient endpoint: %s", err))
+			return
+		}
+		defer resp.Body.Close()
+
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			sc.err.Store(fmt.Errorf("failed to read the response body: %s", err))
+		}
+
+		switch resp.StatusCode {
+		case http.StatusOK:
+			sc.respBytes = respBody
+		case http.StatusUnauthorized:
+			sc.err.Store(InvalidCredentialsError{})
+		default:
+			var errors struct {
+				Errors message.APIErrors
+			}
+			if err := json.Unmarshal(respBody, &errors); err != nil {
+				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
+			}
+			sc.err.Store(errors.Errors.ToError())
+		}
+	}()
+
+	return sc, nil
+}
+
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
 func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) ([]byte, error) {
-	encMsg, err := json.Marshal(message.RequestWrapper{
-		Type:      reqType,
-		Value:     value,
-		Timestamp: time.Now(),
-	})
+	postBody, err := SignRequestV1(reqType, value, hostID, counter, privkey)
 	if err != nil {
 		return nil, err
 	}
-	signedMsg := base64.StdEncoding.EncodeToString(encMsg)
-	sig := ed25519.Sign(privkey, []byte(signedMsg))
-	body := message.RequestV1{
-		Version:   1,
-		HostID:    hostID,
-		Counter:   counter,
-		Message:   signedMsg,
-		Signature: sig,
-	}
-	postBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, bytes.NewReader(postBody))
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call dnclient endpoint: %s", err)
 	}
@@ -328,6 +382,56 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 }
 
+// StreamController is used for interacting with streaming requests to the API.
+//
+// When a streaming request is started in a background goroutine, a StreamController is returned to the caller to allow
+// writing to the request body. The request will be sent when the caller closes the StreamController. The response body
+// can be read by calling ResponseBytes, which will block until the response is received.
+type StreamController struct {
+	w         *io.PipeWriter
+	respBytes []byte
+	err       atomic.Value
+	done      chan struct{}
+}
+
+// Err returns any error that occurred during the streaming request. If the request was successful, Err will return nil.
+// Err should be called after Close to ensure the request has completed.
+func (sc *StreamController) Err() error {
+	err := sc.err.Load()
+	if err == nil {
+		return nil
+	}
+	return err.(error)
+}
+
+// Write implements the io.Writer interface for StreamController. It writes to the request body. It never returns an
+// error. If the StreamController has already encountered an error, Write will return immediately without writing.
+// To check for errors, call Err.
+func (sc *StreamController) Write(p []byte) (n int, err error) {
+	if sc.Err() != nil {
+		return 0, sc.Err()
+	}
+	return sc.w.Write(p)
+}
+
+// Close closes the StreamController, signaling that the request body is complete and the response can be read.
+func (sc *StreamController) Close() error {
+	err := sc.w.Close()
+	<-sc.done
+	return err
+}
+
+// ResponseBytes blocks until the response is received, then returns the response body. If an error occurred during the
+// request, ResponseBytes will return the error.
+func (sc *StreamController) ResponseBytes() ([]byte, error) {
+	<-sc.done
+	if sc.Err() != nil {
+		return nil, sc.Err()
+	}
+	return sc.respBytes, nil
+}
+
+// uaTransport wraps an http.RoundTripper and sets the User-Agent header on all requests.
 type uaTransport struct {
 	useragent string
 	T         http.RoundTripper
