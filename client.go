@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/DefinedNet/dnapi/message"
@@ -291,33 +292,36 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	sc := &StreamController{w: pw, done: done}
 
 	go func() {
+		defer func() {
+			close(done)
+		}()
+
 		resp, err := c.http.Do(req)
 		if err != nil {
-			sc.err = fmt.Errorf("failed to call dnclient endpoint: %s", err)
+			sc.err.Store(fmt.Errorf("failed to call dnclient endpoint: %s", err))
 			return
 		}
 		defer resp.Body.Close()
 
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			sc.err = fmt.Errorf("failed to read the response body: %s", err)
+			sc.err.Store(fmt.Errorf("failed to read the response body: %s", err))
 		}
 
 		switch resp.StatusCode {
 		case http.StatusOK:
 			sc.respBytes = respBody
 		case http.StatusUnauthorized:
-			sc.err = InvalidCredentialsError{}
+			sc.err.Store(InvalidCredentialsError{})
 		default:
 			var errors struct {
 				Errors message.APIErrors
 			}
 			if err := json.Unmarshal(respBody, &errors); err != nil {
-				sc.err = fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
+				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
 			}
-			sc.err = errors.Errors.ToError()
+			sc.err.Store(errors.Errors.ToError())
 		}
-		close(done)
 	}()
 
 	return sc, nil
@@ -370,41 +374,45 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 type StreamController struct {
 	w         *io.PipeWriter
 	respBytes []byte
-	err       error
+	err       atomic.Value
 	done      chan struct{}
 }
 
 // Err returns any error that occurred during the streaming request. If the request was successful, Err will return nil.
 // Err should be called after Close to ensure the request has completed.
-func (c *StreamController) Err() error {
-	return c.err
+func (sc *StreamController) Err() error {
+	err := sc.err.Load()
+	if err == nil {
+		return nil
+	}
+	return err.(error)
 }
 
 // Write implements the io.Writer interface for StreamController. It writes to the request body. It never returns an
 // error. If the StreamController has already encountered an error, Write will return immediately without writing.
 // To check for errors, call Err.
-func (c *StreamController) Write(p []byte) (n int, err error) {
-	if c.err != nil {
-		return 0, c.err
+func (sc *StreamController) Write(p []byte) (n int, err error) {
+	if sc.Err() != nil {
+		return 0, sc.Err()
 	}
-	return c.w.Write(p)
+	return sc.w.Write(p)
 }
 
 // Close closes the StreamController, signaling that the request body is complete and the response can be read.
-func (c *StreamController) Close() error {
-	err := c.w.Close()
-	<-c.done
+func (sc *StreamController) Close() error {
+	err := sc.w.Close()
+	<-sc.done
 	return err
 }
 
 // ResponseBytes blocks until the response is received, then returns the response body. If an error occurred during the
 // request, ResponseBytes will return the error.
-func (c *StreamController) ResponseBytes() ([]byte, error) {
-	if c.err != nil {
-		return nil, c.err
+func (sc *StreamController) ResponseBytes() ([]byte, error) {
+	<-sc.done
+	if sc.Err() != nil {
+		return nil, sc.Err()
 	}
-	<-c.done
-	return c.respBytes, nil
+	return sc.respBytes, nil
 }
 
 // uaTransport wraps an http.RoundTripper and sets the User-Agent header on all requests.
