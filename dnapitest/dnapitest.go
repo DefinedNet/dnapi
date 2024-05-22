@@ -209,11 +209,10 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to read body", http.StatusInternalServerError)
 			return
 		}
-
-		return
 	}
 
 	// return the associated response
+	w.WriteHeader(res.statusCode)
 	w.Write(res.response(msg))
 }
 
@@ -227,21 +226,23 @@ func (s *Server) ExpectEnrollment(code string, response func(req message.EnrollR
 	})
 }
 
-func (s *Server) ExpectRequest(msgType string, response func(r message.RequestWrapper) []byte) {
+func (s *Server) ExpectRequest(msgType string, statusCode int, response func(r message.RequestWrapper) []byte) {
 	s.expectedRequests = append(s.expectedRequests, requestResponse{
 		dnclientAPI: true,
 		dncRequestResponse: dncRequestResponse{
+			statusCode:   statusCode,
 			expectedType: msgType,
 			response:     response,
 		},
 	})
 }
 
-func (s *Server) ExpectStreamingRequest(msgType string, response func(r message.RequestWrapper) []byte) {
+func (s *Server) ExpectStreamingRequest(msgType string, statusCode int, response func(r message.RequestWrapper) []byte) {
 	s.expectedRequests = append(s.expectedRequests, requestResponse{
 		dnclientAPI:        true,
 		isStreamingRequest: true,
 		dncRequestResponse: dncRequestResponse{
+			statusCode:   statusCode,
 			expectedType: msgType,
 			response:     response,
 		},
@@ -296,7 +297,8 @@ type enrollRequestResponse struct {
 type dncRequestResponse struct {
 	expectedType string
 
-	response func(r message.RequestWrapper) []byte
+	statusCode int
+	response   func(r message.RequestWrapper) []byte
 }
 
 func GetNonce(r message.RequestWrapper) []byte {

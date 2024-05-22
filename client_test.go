@@ -198,7 +198,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.NotEmpty(t, pkey)
 
 	// Invalid request signature should return a specific error
-	ts.ExpectRequest(message.CheckForUpdate, func(r message.RequestWrapper) []byte {
+	ts.ExpectRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		return []byte("")
 	})
 
@@ -222,7 +222,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Len(t, serverErrs, 1)
 
 	// Invalid signature
-	ts.ExpectRequest(message.DoUpdate, func(r message.RequestWrapper) []byte {
+	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 2,
@@ -258,7 +258,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// Invalid counter
-	ts.ExpectRequest(message.DoUpdate, func(r message.RequestWrapper) []byte {
+	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 0,
@@ -291,7 +291,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// This time sign the response with the correct CA key.
-	ts.ExpectRequest(message.DoUpdate, func(r message.RequestWrapper) []byte {
+	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 3,
@@ -380,11 +380,11 @@ func TestStreamCommandResponse(t *testing.T) {
 	var buf bytes.Buffer
 
 	// This time sign the response with the correct CA key.
-	ts.ExpectStreamingRequest(message.CommandResponse, func(r message.RequestWrapper) []byte {
+	ts.ExpectStreamingRequest(message.CommandResponse, http.StatusOK, func(r message.RequestWrapper) []byte {
 		return jsonMarshal(struct{}{})
 	})
 
-	sc, err := c.StreamCommandResponse(context.Background(), *creds, "FIXME responseToken")
+	sc, err := c.StreamCommandResponse(context.Background(), *creds, "responseToken")
 	require.NoError(t, err)
 
 	// Configure a logger to write to a buffer and the stream
@@ -401,6 +401,32 @@ func TestStreamCommandResponse(t *testing.T) {
 	require.NoError(t, sc.Err())
 
 	require.Equal(t, buf.Bytes(), ts.LastStreamedBody())
+
+	// Test error handling
+	errorMsg := "sample error"
+	ts.ExpectStreamingRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.EnrollResponse{
+			Errors: message.APIErrors{{
+				Code:    "ERR_INVALID_VALUE",
+				Message: errorMsg,
+			}},
+		})
+	})
+
+	buf.Reset()
+
+	sc, err = c.StreamCommandResponse(context.Background(), *creds, "responseToken")
+	require.NoError(t, err)
+
+	logger.SetOutput(io.MultiWriter(sc, &buf))
+
+	logger.Info("Hello, world! info!")
+	logger.Warn("Hello, world! warning!")
+
+	// Close shouldn't return an error - that's only if the writer fails to close
+	assert.NoError(t, sc.Close())
+	// Err should return the error from the server
+	assert.Error(t, sc.Err())
 
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining(), ts.ExpectedRequests())
