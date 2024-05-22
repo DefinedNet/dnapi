@@ -36,6 +36,7 @@ jobs:
       - name: Run unit tests
         run: make testvv
         env:
+          TEST_FLAGS: -race
 
       - name: Report failures to Slack
         if: ${{ always() && github.ref == 'refs/heads/main' }}
@@ -47,4 +48,3 @@ jobs:
           notify_when: 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_REPORTING_WEBHOOK }}
-          TEST_FLAGS: -race
