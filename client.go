@@ -20,15 +20,31 @@ import (
 
 // Client communicates with the API server.
 type Client struct {
-	http     *http.Client
 	dnServer string
+
+	client          *http.Client
+	streamingClient *http.Client
 }
 
 // NewClient returns new Client configured with the given useragent.
 // It also supports reading Proxy information from the environment.
 func NewClient(useragent string, dnServer string) *Client {
 	return &Client{
-		http: &http.Client{
+		client: &http.Client{
+			Timeout: 1 * time.Minute,
+			Transport: &uaTransport{
+				T: &http.Transport{
+					Proxy:                 http.ProxyFromEnvironment,
+					TLSHandshakeTimeout:   10 * time.Second,
+					ResponseHeaderTimeout: 10 * time.Second,
+					DialContext: (&net.Dialer{
+						Timeout: 10 * time.Second,
+					}).DialContext,
+				},
+				useragent: useragent,
+			},
+		},
+		streamingClient: &http.Client{
 			Timeout: 15 * time.Minute,
 			Transport: &uaTransport{
 				T: &http.Transport{
@@ -103,7 +119,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, err
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -296,7 +312,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			close(done)
 		}()
 
-		resp, err := c.http.Do(req)
+		resp, err := c.streamingClient.Do(req)
 		if err != nil {
 			sc.err.Store(fmt.Errorf("failed to call dnclient endpoint: %s", err))
 			return
@@ -339,7 +355,7 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call dnclient endpoint: %s", err)
 	}

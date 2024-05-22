@@ -450,16 +450,18 @@ func TestTimeout(t *testing.T) {
 
 	useragent := "TestTimeout agent"
 	c := NewClient(useragent, ts.URL)
-	// The default timeout is 15 minutes. Assert the default value.
-	assert.Equal(t, c.http.Timeout, 15*time.Minute)
+	// The default timeout is 1 minutes. Assert the default value.
+	assert.Equal(t, c.client.Timeout, 1*time.Minute)
+	// The default streaming timeout is 15 minutes. Assert the default value.
+	assert.Equal(t, c.streamingClient.Timeout, 15*time.Minute)
 	// Overwrite the default value with a 10 millisecond timeout for test brevity.
-	c.http.Timeout = 10 * time.Millisecond
+	c.client.Timeout = 10 * time.Millisecond
 	// DO IT
-	_, err := c.http.Get(ts.URL + "/lol")
+	_, err := c.client.Get(ts.URL + "/lol")
 	require.Error(t, err)
 }
 
-func TestRequestTimeout(t *testing.T) {
+func TestOverrideTimeout(t *testing.T) {
 	ts := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(250 * time.Millisecond)
