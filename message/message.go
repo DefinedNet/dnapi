@@ -87,7 +87,9 @@ type LongPollWaitRequest struct {
 
 // LongPollWaitResponse is the response message associated with a LongPollWait call.
 type LongPollWaitResponse struct {
-	Action string `json:"action"` // e.g. NoOp, StreamLogs, DoUpdate
+	Action        string                 `json:"action"` // e.g. NoOp, StreamLogs, DoUpdate
+	Args          map[string]interface{} `json:"args"`
+	ResponseToken string                 `json:"responseToken"`
 }
 
 // CommandResponseResponseWrapper contains a response to CommandResponse inside "data."
