@@ -31,12 +31,11 @@ type Client struct {
 func NewClient(useragent string, dnServer string) *Client {
 	return &Client{
 		client: &http.Client{
-			Timeout: 1 * time.Minute,
+			Timeout: 2 * time.Minute,
 			Transport: &uaTransport{
 				T: &http.Transport{
-					Proxy:                 http.ProxyFromEnvironment,
-					TLSHandshakeTimeout:   10 * time.Second,
-					ResponseHeaderTimeout: 10 * time.Second,
+					Proxy:               http.ProxyFromEnvironment,
+					TLSHandshakeTimeout: 10 * time.Second,
 					DialContext: (&net.Dialer{
 						Timeout: 10 * time.Second,
 					}).DialContext,
@@ -48,9 +47,8 @@ func NewClient(useragent string, dnServer string) *Client {
 			Timeout: 15 * time.Minute,
 			Transport: &uaTransport{
 				T: &http.Transport{
-					Proxy:                 http.ProxyFromEnvironment,
-					TLSHandshakeTimeout:   10 * time.Second,
-					ResponseHeaderTimeout: 10 * time.Second,
+					Proxy:               http.ProxyFromEnvironment,
+					TLSHandshakeTimeout: 10 * time.Second,
 					DialContext: (&net.Dialer{
 						Timeout: 10 * time.Second,
 					}).DialContext,
@@ -180,24 +178,25 @@ func (c *Client) CheckForUpdate(ctx context.Context, creds Credentials) (bool, e
 
 // LongPollWait sends a signed message to a DNClient API endpoint that will block, returning only
 // if there is an action the client should take before the timeout (config updates, debug commands)
-func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedActions []string) (string, error) {
+func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedActions []string) (*message.LongPollWaitResponse, error) {
 	value, err := json.Marshal(message.LongPollWaitRequest{
 		SupportedActions: supportedActions,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal DNClient message: %s", err)
+		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
 	}
 
 	respBody, err := c.postDNClient(ctx, message.LongPollWait, value, creds.HostID, creds.Counter, creds.PrivateKey)
 	if err != nil {
-		return "", fmt.Errorf("failed to post message to dnclient api: %w", err)
+		return nil, fmt.Errorf("failed to post message to dnclient api: %w", err)
 	}
 	result := message.LongPollWaitResponseWrapper{}
 	err = json.Unmarshal(respBody, &result)
 	if err != nil {
-		return "", fmt.Errorf("failed to interpret API response: %s", err)
+		return nil, fmt.Errorf("failed to interpret API response: %s", err)
 	}
-	return result.Data.Action, nil
+
+	return &result.Data, nil
 }
 
 // DoUpdate sends a signed message to the DNClient API to fetch the new configuration update. During this call a new
@@ -277,9 +276,26 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	return result.Config, dhPrivkeyPEM, newCreds, nil
 }
 
-func (c *Client) StreamCommandResponse(ctx context.Context, creds Credentials, responseToken string) (*StreamController, error) {
+func (c *Client) CommandResponse(ctx context.Context, creds Credentials, responseToken string, response json.RawMessage) error {
 	value, err := json.Marshal(message.CommandResponseRequest{
 		ResponseToken: responseToken,
+		Response:      response,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	_, err = c.postDNClient(ctx, message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to post message to dnclient api: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) StreamCommandResponse(ctx context.Context, creds Credentials, responseToken string, response json.RawMessage) (*StreamController, error) {
+	value, err := json.Marshal(message.CommandResponseRequest{
+		ResponseToken: responseToken,
+		Response:      response,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
@@ -308,9 +324,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	sc := &StreamController{w: pw, done: done}
 
 	go func() {
-		defer func() {
-			close(done)
-		}()
+		defer close(done)
 
 		resp, err := c.streamingClient.Do(req)
 		if err != nil {
