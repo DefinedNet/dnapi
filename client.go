@@ -31,7 +31,7 @@ type Client struct {
 func NewClient(useragent string, dnServer string) *Client {
 	return &Client{
 		client: &http.Client{
-			Timeout: 1 * time.Minute,
+			Timeout: 2 * time.Minute,
 			Transport: &uaTransport{
 				T: &http.Transport{
 					Proxy:               http.ProxyFromEnvironment,
