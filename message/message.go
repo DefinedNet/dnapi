@@ -1,6 +1,7 @@
 package message
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -87,7 +88,8 @@ type LongPollWaitRequest struct {
 
 // LongPollWaitResponse is the response message associated with a LongPollWait call.
 type LongPollWaitResponse struct {
-	Action string `json:"action"` // e.g. NoOp, StreamLogs, DoUpdate
+	Action        json.RawMessage `json:"action"` // e.g. NoOp, StreamLogs, DoUpdate
+	ResponseToken string          `json:"responseToken"`
 }
 
 // CommandResponseResponseWrapper contains a response to CommandResponse inside "data."
@@ -98,6 +100,7 @@ type CommandResponseResponseWrapper struct {
 // CommandResponseRequest is the request message associated with a CommandResponse call.
 type CommandResponseRequest struct {
 	ResponseToken string `json:"responseToken"`
+	Response      any    `json:"response"`
 }
 
 // DNClientCommandResponseResponse is the response message associated with a CommandResponse call.

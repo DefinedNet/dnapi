@@ -156,7 +156,7 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 	// Require the expected request type, otherwise we have derailed.
 	if msg.Type != res.expectedType {
 		s.errors = append(s.errors, fmt.Errorf("%s is not expected message type %s", msg.Type, res.expectedType))
-		http.Error(w, "unexpected message type", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("unexpected message type %s, wanted %s", msg.Type, res.expectedType), http.StatusInternalServerError)
 		return
 	}
 
