@@ -127,7 +127,12 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 
 	// Log the request ID returned from the server
 	reqID := resp.Header.Get("X-Request-ID")
-	logger.WithFields(logrus.Fields{"reqID": reqID}).Info("Enrollment request complete")
+	l := logger.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "reqID": reqID})
+	if resp.StatusCode != http.StatusOK {
+		l.Info("Enrollment request returned success code")
+	} else {
+		l.Error("Enrollment request returned error code")
+	}
 
 	// Decode the response
 	r := message.EnrollResponse{}
