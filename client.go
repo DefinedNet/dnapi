@@ -278,32 +278,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 func (c *Client) CommandResponse(ctx context.Context, creds Credentials, responseToken string, response any) error {
 	value, err := json.Marshal(message.CommandResponseRequest{
 		ResponseToken: responseToken,
+		Response:      response,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal DNClient message: %s", err)
 	}
-
-	jresp, err := json.Marshal(response)
-	if err != nil {
-		return fmt.Errorf("failed to marshal DNClient command response: %s", err)
-	}
-
-	postBody, err := SignRequestV1(message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
-	if err != nil {
-		return nil
-	}
-	postBody = append(postBody, []byte("\n")...)
-	postBody = append(postBody, jresp...)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, bytes.NewReader(postBody))
-	if err != nil {
-		return err
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to call dnclient endpoint: %w", err)
-	}
-	defer resp.Body.Close()
 
 	_, err = c.postDNClient(ctx, message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
 	return err

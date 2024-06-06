@@ -317,6 +317,97 @@ func TestDoUpdate(t *testing.T) {
 
 }
 
+func TestCommandResponse(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, _ := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalToPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	code := "foobar"
+	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{
+			// we need to send this or we'll get an error from the api client
+			"pki": m{"ca": string(caPEM)},
+			// here we reflect values back to the client for test purposes
+			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+		})
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
+					Message: "failed to marshal test response config",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.EnrollResponse{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: cert.MarshalEd25519PublicKey(ca.Details.PublicKey),
+				Organization: message.EnrollResponseDataOrg{
+					ID:   "foobaz",
+					Name: "foobar's foo org",
+				},
+			},
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	require.NoError(t, err)
+
+	// make sure all credential values were set
+	assert.NotEmpty(t, creds.HostID)
+	assert.NotEmpty(t, creds.PrivateKey)
+	assert.NotEmpty(t, creds.TrustedKeys)
+	assert.NotEmpty(t, creds.Counter)
+
+	// make sure we got a config back
+	assert.NotEmpty(t, config)
+	assert.NotEmpty(t, pkey)
+
+	// This time sign the response with the correct CA key.
+	responseToken := "abc123"
+	res := map[string]any{"msg": "Hello, world!"}
+	ts.ExpectRequest(message.CommandResponse, http.StatusOK, func(r message.RequestWrapper) []byte {
+		var val map[string]any
+		err := json.Unmarshal(r.Value, &val)
+		require.NoError(t, err)
+		require.Contains(t, val, "responseToken")
+		require.Equal(t, responseToken, val["responseToken"])
+		require.Contains(t, val, "response")
+		require.Equal(t, res, val["response"])
+		return jsonMarshal(struct{}{})
+	})
+
+	err = c.CommandResponse(context.Background(), *creds, responseToken, res)
+	require.NoError(t, err)
+
+	// Test error handling
+	errorMsg := "sample error"
+	ts.ExpectRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.EnrollResponse{
+			Errors: message.APIErrors{{
+				Code:    "ERR_INVALID_VALUE",
+				Message: errorMsg,
+			}},
+		})
+	})
+
+	err = c.CommandResponse(context.Background(), *creds, "responseToken", map[string]any{"msg": "Hello, world!"})
+	require.Error(t, err)
+}
+
 func TestStreamCommandResponse(t *testing.T) {
 	t.Parallel()
 

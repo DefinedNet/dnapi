@@ -99,8 +99,8 @@ type CommandResponseResponseWrapper struct {
 
 // CommandResponseRequest is the request message associated with a CommandResponse call.
 type CommandResponseRequest struct {
-	ResponseToken string          `json:"responseToken"`
-	Response      json.RawMessage `json:"response"`
+	ResponseToken string `json:"responseToken"`
+	Response      any    `json:"response"`
 }
 
 // DNClientCommandResponseResponse is the response message associated with a CommandResponse call.
