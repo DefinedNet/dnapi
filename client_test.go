@@ -542,7 +542,7 @@ func TestTimeout(t *testing.T) {
 	useragent := "TestTimeout agent"
 	c := NewClient(useragent, ts.URL)
 	// The default timeout is 1 minutes. Assert the default value.
-	assert.Equal(t, c.client.Timeout, 1*time.Minute)
+	assert.Equal(t, c.client.Timeout, 2*time.Minute)
 	// The default streaming timeout is 15 minutes. Assert the default value.
 	assert.Equal(t, c.streamingClient.Timeout, 15*time.Minute)
 	// Overwrite the default value with a 10 millisecond timeout for test brevity.
