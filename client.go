@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -111,8 +112,11 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EnrollEndpoint, bytes.NewBuffer(jv))
+	enrollURL, err := url.JoinPath(c.dnServer, message.EnrollEndpoint)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", enrollURL, bytes.NewBuffer(jv))
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -315,7 +319,11 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	}
 	pbb := bytes.NewBuffer(postBody)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, io.MultiReader(pbb, pr))
+	endpointV1URL, err := url.JoinPath(c.dnServer, message.EndpointV1)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", endpointV1URL, io.MultiReader(pbb, pr))
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +373,11 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.dnServer+message.EndpointV1, bytes.NewReader(postBody))
+	endpointV1URL, err := url.JoinPath(c.dnServer, message.EndpointV1)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", endpointV1URL, bytes.NewReader(postBody))
 	if err != nil {
 		return nil, err
 	}
