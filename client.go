@@ -357,8 +357,9 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			}
 			if err := json.Unmarshal(respBody, &errors); err != nil {
 				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
+			} else {
+				sc.err.Store(errors.Errors.ToError())
 			}
-			sc.err.Store(errors.Errors.ToError())
 		}
 	}()
 
