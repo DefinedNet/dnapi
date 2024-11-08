@@ -39,6 +39,8 @@ func TestEnroll(t *testing.T) {
 	hostID := "foobar"
 	orgID := "foobaz"
 	orgName := "foobar's foo org"
+	netID := "qux"
+	netCurve := message.NetworkCurve25519
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
@@ -69,6 +71,10 @@ func TestEnroll(t *testing.T) {
 				Organization: message.EnrollResponseDataOrg{
 					ID:   orgID,
 					Name: orgName,
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    netID,
+					Curve: netCurve,
 				},
 			},
 		})
@@ -176,6 +182,10 @@ func TestDoUpdate(t *testing.T) {
 					ID:   "foobaz",
 					Name: "foobar's foo org",
 				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurve25519,
+				},
 			},
 		})
 	})
@@ -203,7 +213,7 @@ func TestDoUpdate(t *testing.T) {
 	})
 
 	// Create a new, invalid requesting authentication key
-	_, invalidPrivKey, err := newEdKeypair()
+	_, invalidPrivKey, err := newEd25519Keypair()
 	require.NoError(t, err)
 	invalidCreds := Credentials{
 		HostID:      creds.HostID,
@@ -230,7 +240,7 @@ func TestDoUpdate(t *testing.T) {
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
-		_, newPrivkey, err := newEdKeypair()
+		_, newPrivkey, err := newEd25519Keypair()
 		require.NoError(t, err)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
@@ -357,6 +367,10 @@ func TestCommandResponse(t *testing.T) {
 					ID:   "foobaz",
 					Name: "foobar's foo org",
 				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurve25519,
+				},
 			},
 		})
 	})
@@ -447,6 +461,10 @@ func TestStreamCommandResponse(t *testing.T) {
 				Organization: message.EnrollResponseDataOrg{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurve25519,
 				},
 			},
 		})

@@ -97,17 +97,19 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making enrollment request to API")
 
 	// Generate initial Ed25519 keypair for API communication
-	dhPubkeyPEM, dhPrivkeyPEM, edPubkey, edPrivkey, err := newKeys()
+	keys, err := newInitialKeys()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
 	// Make a request to the API with the enrollment code
 	jv, err := json.Marshal(message.EnrollRequest{
-		Code:      code,
-		DHPubkey:  dhPubkeyPEM,
-		EdPubkey:  cert.MarshalEd25519PublicKey(edPubkey),
-		Timestamp: time.Now(),
+		Code:            code,
+		DHPubkey:        keys.x25519PublicKeyPEM,
+		EdPubkey:        cert.MarshalEd25519PublicKey(keys.ed25519PublicKey),
+		P256ECDHPubkey:  keys.ecdhP256PublicKeyPEM,
+		P256ECDSAPubkey: keys.ecdsaP256PublicKey,
+		Timestamp:       time.Now(),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -162,13 +164,23 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to load trusted keys from bundle: %s", err), ReqID: reqID}
 	}
 
+	var privkeyPEM []byte
+	switch {
+	case r.Data.Network.Curve == message.NetworkCurve25519:
+		privkeyPEM = keys.x25519PrivateKeyPEM
+	case r.Data.Network.Curve == message.NetworkCurveP256:
+		privkeyPEM = keys.ecdhP256PrivateKeyPEM
+	default:
+		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unsupported curve type: %s", r.Data.Network.Curve), ReqID: reqID}
+	}
+
 	creds := &Credentials{
 		HostID:      r.Data.HostID,
-		PrivateKey:  edPrivkey,
+		PrivateKey:  keys.ed25519PrivateKey,
 		Counter:     r.Data.Counter,
 		TrustedKeys: trustedKeys,
 	}
-	return r.Data.Config, dhPrivkeyPEM, creds, meta, nil
+	return r.Data.Config, privkeyPEM, creds, meta, nil
 }
 
 // CheckForUpdate sends a signed message to the DNClient API to learn if there is a new configuration available.
@@ -213,7 +225,7 @@ func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedA
 // api.InsertConfigPrivateKey) and new DNClient API credentials.
 func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byte, *Credentials, error) {
 	// Rotate keys
-	dhPubkeyPEM, dhPrivkeyPEM, edPubkey, edPrivkey, err := newKeys()
+	dhPubkeyPEM, dhPrivkeyPEM, edPubkey, edPrivkey, err := new25519Keys()
 	if err != nil {
 		return nil, nil, nil, err
 	}
