@@ -97,7 +97,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making enrollment request to API")
 
 	// Generate initial Ed25519 keypair for API communication
-	keys, err := newInitialKeys()
+	keys, err := newKeys()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -106,9 +106,9 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	jv, err := json.Marshal(message.EnrollRequest{
 		Code:            code,
 		DHPubkey:        keys.x25519PublicKeyPEM,
-		EdPubkey:        cert.MarshalEd25519PublicKey(keys.ed25519PublicKey),
+		EdPubkey:        cert.MarshalEd25519PublicKey(ed25519.PublicKey(keys.ed25519PublicKey)),
 		P256ECDHPubkey:  keys.ecdhP256PublicKeyPEM,
-		P256ECDSAPubkey: keys.ecdsaP256PublicKey,
+		P256ECDSAPubkey: MarshalECDSAP256PublicKey(keys.ecdsaP256PublicKey),
 		Timestamp:       time.Now(),
 	})
 	if err != nil {
@@ -165,18 +165,21 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	}
 
 	var privkeyPEM []byte
+	var privkey PrivateKey
 	switch {
 	case r.Data.Network.Curve == message.NetworkCurve25519:
 		privkeyPEM = keys.x25519PrivateKeyPEM
+		privkey = Ed25519PrivateKey{keys.ed25519PrivateKey}
 	case r.Data.Network.Curve == message.NetworkCurveP256:
 		privkeyPEM = keys.ecdhP256PrivateKeyPEM
+		privkey = P256PrivateKey{keys.ecdsaP256PrivateKey}
 	default:
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unsupported curve type: %s", r.Data.Network.Curve), ReqID: reqID}
 	}
 
 	creds := &Credentials{
 		HostID:      r.Data.HostID,
-		PrivateKey:  keys.ed25519PrivateKey,
+		PrivateKey:  privkey,
 		Counter:     r.Data.Counter,
 		TrustedKeys: trustedKeys,
 	}
@@ -225,15 +228,28 @@ func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedA
 // api.InsertConfigPrivateKey) and new DNClient API credentials.
 func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byte, *Credentials, error) {
 	// Rotate keys
-	dhPubkeyPEM, dhPrivkeyPEM, edPubkey, edPrivkey, err := new25519Keys()
+	var privkeyPEM []byte  // ECDH
+	var privkey PrivateKey // ECDSA
+
+	newKeys, err := newKeys()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to generate new keys: %s", err)
 	}
 
 	updateKeys := message.DoUpdateRequest{
-		EdPubkeyPEM: cert.MarshalEd25519PublicKey(edPubkey),
-		DHPubkeyPEM: dhPubkeyPEM,
-		Nonce:       nonce(),
+		Nonce: nonce(),
+	}
+	switch creds.PrivateKey.Type() {
+	case Ed25519:
+		updateKeys.EdPubkeyPEM = cert.MarshalEd25519PublicKey(ed25519.PublicKey(newKeys.ed25519PublicKey))
+		updateKeys.DHPubkeyPEM = newKeys.x25519PublicKeyPEM
+		privkeyPEM = newKeys.x25519PrivateKeyPEM
+		privkey = Ed25519PrivateKey{newKeys.ed25519PrivateKey}
+	case P256:
+		updateKeys.P256ECDSAPubkey = MarshalECDSAP256PublicKey(newKeys.ecdsaP256PublicKey)
+		updateKeys.P256ECDHPubkey = newKeys.ecdhP256PublicKeyPEM
+		privkeyPEM = newKeys.ecdhP256PrivateKeyPEM
+		privkey = P256PrivateKey{newKeys.ecdsaP256PrivateKey}
 	}
 
 	updateKeysBlob, err := json.Marshal(updateKeys)
@@ -289,11 +305,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	newCreds := &Credentials{
 		HostID:      creds.HostID,
 		Counter:     result.Counter,
-		PrivateKey:  edPrivkey,
+		PrivateKey:  privkey,
 		TrustedKeys: trustedKeys,
 	}
 
-	return result.Config, dhPrivkeyPEM, newCreds, nil
+	return result.Config, privkeyPEM, newCreds, nil
 }
 
 func (c *Client) CommandResponse(ctx context.Context, creds Credentials, responseToken string, response any) error {
@@ -322,7 +338,7 @@ func (c *Client) StreamCommandResponse(ctx context.Context, creds Credentials, r
 
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
 // On success, it returns a StreamController to interact with the request. On error, the error is returned.
-func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) (*StreamController, error) {
+func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey PrivateKey) (*StreamController, error) {
 	pr, pw := io.Pipe()
 
 	postBody, err := SignRequestV1(reqType, value, hostID, counter, privkey)
@@ -380,7 +396,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
-func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) ([]byte, error) {
+func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey PrivateKey) ([]byte, error) {
 	postBody, err := SignRequestV1(reqType, value, hostID, counter, privkey)
 	if err != nil {
 		return nil, err

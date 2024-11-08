@@ -63,9 +63,11 @@ type CheckForUpdateResponse struct {
 
 // DoUpdateRequest is the request sent for a DoUpdate request.
 type DoUpdateRequest struct {
-	EdPubkeyPEM []byte `json:"edPubkeyPEM"`
-	DHPubkeyPEM []byte `json:"dhPubkeyPEM"`
-	Nonce       []byte `json:"nonce"`
+	EdPubkeyPEM     []byte `json:"edPubkeyPEM"`        // X25519 (used for key exchange)
+	DHPubkeyPEM     []byte `json:"dhPubkeyPEM"`        // Ed25519 (used for signing)
+	P256ECDHPubkey  []byte `json:"p256ECDHPubkeyPEM"`  // P256 (used for key exchange)
+	P256ECDSAPubkey []byte `json:"p256ECDSAPubkeyPEM"` // P256 (used for signing)
+	Nonce           []byte `json:"nonce"`
 }
 
 // DoUpdateResponse is the response generated for a DoUpdate request.

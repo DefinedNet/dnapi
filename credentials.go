@@ -33,7 +33,7 @@ func Ed25519PublicKeysFromPEM(pemKeys []byte) ([]ed25519.PublicKey, error) {
 // Credentials contains information necessary to make requests against the DNClient API.
 type Credentials struct {
 	HostID      string
-	PrivateKey  ed25519.PrivateKey
+	PrivateKey  PrivateKey
 	Counter     uint
 	TrustedKeys []ed25519.PublicKey
 }
