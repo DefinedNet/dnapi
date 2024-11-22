@@ -102,13 +102,18 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, err
 	}
 
+	hostPubkeyP256, err := MarshalECDSAP256PublicKey(keys.ecdsaP256PublicKey)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	// Make a request to the API with the enrollment code
 	jv, err := json.Marshal(message.EnrollRequest{
 		Code:            code,
 		DHPubkey:        keys.x25519PublicKeyPEM,
 		EdPubkey:        cert.MarshalEd25519PublicKey(ed25519.PublicKey(keys.ed25519PublicKey)),
 		P256ECDHPubkey:  keys.ecdhP256PublicKeyPEM,
-		P256ECDSAPubkey: MarshalECDSAP256PublicKey(keys.ecdsaP256PublicKey),
+		P256ECDSAPubkey: hostPubkeyP256,
 		Timestamp:       time.Now(),
 	})
 	if err != nil {
@@ -246,7 +251,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 		privkeyPEM = newKeys.x25519PrivateKeyPEM
 		privkey = Ed25519PrivateKey{newKeys.ed25519PrivateKey}
 	case P256:
-		updateKeys.P256ECDSAPubkey = MarshalECDSAP256PublicKey(newKeys.ecdsaP256PublicKey)
+		b, err := MarshalECDSAP256PublicKey(newKeys.ecdsaP256PublicKey)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to marshal ECDSA P256 public key: %s", err)
+		}
+		updateKeys.P256ECDSAPubkey = b
 		updateKeys.P256ECDHPubkey = newKeys.ecdhP256PublicKeyPEM
 		privkeyPEM = newKeys.ecdhP256PrivateKeyPEM
 		privkey = P256PrivateKey{newKeys.ecdsaP256PrivateKey}

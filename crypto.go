@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -17,15 +18,22 @@ import (
 const ECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
 
 // MarshalECDSAP256PublicKey is a simple helper to PEM encode an ECDSA P256 public key
-func MarshalECDSAP256PublicKey(key []byte) []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: ECDSAP256PublicKeyBanner, Bytes: key})
+func MarshalECDSAP256PublicKey(k *ecdsa.PublicKey) ([]byte, error) {
+	b, err := x509.MarshalPKIXPublicKey(k)
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  ECDSAP256PublicKeyBanner,
+		Bytes: b,
+	}), nil
 }
 
 // PrivateKey is used to sign messages.
 type PrivateKey interface {
 	Type() PrivateKeyType
-	PublicKey() PublicKey
 	Sign(msg []byte) ([]byte, error)
+	Unwrap() interface{}
 }
 
 type PrivateKeyType int
@@ -43,12 +51,12 @@ func (k Ed25519PrivateKey) Type() PrivateKeyType {
 	return Ed25519
 }
 
-func (k Ed25519PrivateKey) PublicKey() PublicKey {
-	return PublicKey(k.Public().(ed25519.PublicKey))
-}
-
 func (k Ed25519PrivateKey) Sign(msg []byte) ([]byte, error) {
 	return ed25519.Sign(k.PrivateKey, msg), nil
+}
+
+func (k Ed25519PrivateKey) Unwrap() interface{} {
+	return k.PrivateKey
 }
 
 type P256PrivateKey struct {
@@ -59,34 +67,26 @@ func (k P256PrivateKey) Type() PrivateKeyType {
 	return P256
 }
 
-func (k P256PrivateKey) PublicKey() PublicKey {
-	pkey, err := k.ECDH()
-	if err != nil {
-		panic(err)
-	}
-
-	return pkey.PublicKey().Bytes()
-}
-
 func (k P256PrivateKey) Sign(msg []byte) ([]byte, error) {
 	hashed := sha256.Sum256(msg)
 	return ecdsa.SignASN1(rand.Reader, k.PrivateKey, hashed[:])
 }
 
-// PublicKey is used to carry the public key of a PrivateKey.
-type PublicKey []byte
+func (k P256PrivateKey) Unwrap() interface{} {
+	return k.PrivateKey
+}
 
 type initialKeys struct {
 	// 25519 Curve
 	x25519PublicKeyPEM  []byte             // ECDH
 	x25519PrivateKeyPEM []byte             // ECDH
-	ed25519PublicKey    PublicKey          // EdDSA
+	ed25519PublicKey    []byte             // EdDSA
 	ed25519PrivateKey   ed25519.PrivateKey // EdDSA
 
 	// P256 Curve
 	ecdhP256PublicKeyPEM  []byte            // ECDH
 	ecdhP256PrivateKeyPEM []byte            // ECDH
-	ecdsaP256PublicKey    PublicKey         // ECDSA
+	ecdsaP256PublicKey    *ecdsa.PublicKey  // ECDSA
 	ecdsaP256PrivateKey   *ecdsa.PrivateKey // ECDSA, in spite of its type
 }
 
@@ -104,7 +104,7 @@ func newKeys() (*initialKeys, error) {
 	return &initialKeys{
 		x25519PublicKeyPEM:    x25519PublicKeyPEM,
 		x25519PrivateKeyPEM:   x25519PrivateKeyPEM,
-		ed25519PublicKey:      PublicKey(ed25519PublicKey),
+		ed25519PublicKey:      ed25519PublicKey,
 		ed25519PrivateKey:     ed25519PrivateKey,
 		ecdhP256PublicKeyPEM:  ecdhP256PublicKeyPEM,
 		ecdhP256PrivateKeyPEM: ecdhP256PrivateKeyPEM,
@@ -129,7 +129,7 @@ func new25519Keys() ([]byte, []byte, ed25519.PublicKey, ed25519.PrivateKey, erro
 }
 
 // newP256Keys returns a new set of Nebula (Diffie-Hellman) ECDH P256 keys and a new set of ECDSA (request signing) keys.
-func newP256Keys() ([]byte, []byte, []byte, *ecdsa.PrivateKey, error) {
+func newP256Keys() ([]byte, []byte, *ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
 	ecdhPubkeyPEM, ecdhPrivkeyPEM, err := newNebulaP256Keypair()
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to generate Nebula keypair: %s", err)
@@ -180,9 +180,9 @@ func newEd25519Keypair() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 
 // newNebulaP256Keypair returns a new Nebula keypair (P256) in PEM format.
 func newNebulaP256Keypair() ([]byte, []byte, error) {
-	_, rawPrivkey, err := newP256Keypair()
+	rawPrivkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error while generating ecdsa keys: %s", err)
 	}
 
 	ecdhPrivkey, err := rawPrivkey.ECDH()
@@ -197,20 +197,13 @@ func newNebulaP256Keypair() ([]byte, []byte, error) {
 }
 
 // newP256Keypair create a pair of P256 public key and private key and returns them, in that order.
-func newP256Keypair() ([]byte, *ecdsa.PrivateKey, error) {
+func newP256Keypair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
 	privkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error while generating ecdsa keys: %s", err)
 	}
 
-	// ecdh.PrivateKey lets us get at the encoded bytes, even though
-	// we aren't using ECDH here.
-	pubkey, err := privkey.ECDH()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return pubkey.PublicKey().Bytes(), privkey, nil
+	return privkey.Public().(*ecdsa.PublicKey), privkey, nil
 }
 
 func nonce() []byte {

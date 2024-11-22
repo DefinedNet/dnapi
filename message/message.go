@@ -65,8 +65,8 @@ type CheckForUpdateResponse struct {
 type DoUpdateRequest struct {
 	EdPubkeyPEM     []byte `json:"edPubkeyPEM"`        // X25519 (used for key exchange)
 	DHPubkeyPEM     []byte `json:"dhPubkeyPEM"`        // Ed25519 (used for signing)
-	P256ECDHPubkey  []byte `json:"p256ECDHPubkeyPEM"`  // P256 (used for key exchange)
-	P256ECDSAPubkey []byte `json:"p256ECDSAPubkeyPEM"` // P256 (used for signing)
+	P256ECDHPubkey  []byte `json:"ecdhP256PubkeyPEM"`  // P256 (used for key exchange)
+	P256ECDSAPubkey []byte `json:"ecdsaP256PubkeyPEM"` // P256 (used for signing)
 	Nonce           []byte `json:"nonce"`
 }
 
@@ -123,8 +123,8 @@ type EnrollRequest struct {
 	Code            string    `json:"code"`
 	DHPubkey        []byte    `json:"dhPubkey"`        // X25519 (used for key exchange)
 	EdPubkey        []byte    `json:"edPubkey"`        // Ed25519 (used for signing)
-	P256ECDHPubkey  []byte    `json:"p256ECDHPubkey"`  // P256 (used for key exchange)
-	P256ECDSAPubkey []byte    `json:"p256ECDSAPubkey"` // P256 (used for signing)
+	P256ECDHPubkey  []byte    `json:"ecdhP256Pubkey"`  // P256 (used for key exchange)
+	P256ECDSAPubkey []byte    `json:"ecdsaP256Pubkey"` // P256 (used for signing)
 	Timestamp       time.Time `json:"timestamp"`
 }
 

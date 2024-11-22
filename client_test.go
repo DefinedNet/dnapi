@@ -195,7 +195,8 @@ func TestDoUpdate(t *testing.T) {
 	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
-	pubkey := cert.MarshalEd25519PublicKey(ed25519.PublicKey(creds.PrivateKey.PublicKey()))
+	// convert privkey to private key
+	pubkey := cert.MarshalEd25519PublicKey(creds.PrivateKey.Unwrap().(ed25519.PrivateKey).Public().(ed25519.PublicKey))
 
 	// make sure all credential values were set
 	assert.NotEmpty(t, creds.HostID)
