@@ -84,7 +84,7 @@ func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
 		s.errors = append(s.errors, fmt.Errorf("missing timestamp"))
 	}
 
-	if err := s.SetEdPubkey(req.EdPubkey); err != nil {
+	if err := s.SetEdPubkey(req.HostPubkeyEd25519); err != nil {
 		s.errors = append(s.errors, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

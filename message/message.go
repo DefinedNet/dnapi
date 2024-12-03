@@ -63,11 +63,11 @@ type CheckForUpdateResponse struct {
 
 // DoUpdateRequest is the request sent for a DoUpdate request.
 type DoUpdateRequest struct {
-	EdPubkeyPEM     []byte `json:"edPubkeyPEM"`        // X25519 (used for key exchange)
-	DHPubkeyPEM     []byte `json:"dhPubkeyPEM"`        // Ed25519 (used for signing)
-	P256ECDHPubkey  []byte `json:"ecdhP256PubkeyPEM"`  // P256 (used for key exchange)
-	P256ECDSAPubkey []byte `json:"ecdsaP256PubkeyPEM"` // P256 (used for signing)
-	Nonce           []byte `json:"nonce"`
+	EdPubkeyPEM         []byte `json:"edPubkeyPEM"`         // X25519 (used for key exchange)
+	DHPubkeyPEM         []byte `json:"dhPubkeyPEM"`         // Ed25519 (used for signing)
+	P256NebulaPubkeyPEM []byte `json:"p256NebulaPubkeyPEM"` // P256 (used for key exchange)
+	P256HostPubkeyPEM   []byte `json:"p256HostPubkeyPEM"`   // P256 (used for signing)
+	Nonce               []byte `json:"nonce"`
 }
 
 // DoUpdateResponse is the response generated for a DoUpdate request.
@@ -120,12 +120,12 @@ const EnrollEndpoint = "/v2/enroll"
 
 // EnrollRequest is issued to the EnrollEndpoint.
 type EnrollRequest struct {
-	Code            string    `json:"code"`
-	DHPubkey        []byte    `json:"dhPubkey"`        // X25519 (used for key exchange)
-	EdPubkey        []byte    `json:"edPubkey"`        // Ed25519 (used for signing)
-	P256ECDHPubkey  []byte    `json:"ecdhP256Pubkey"`  // P256 (used for key exchange)
-	P256ECDSAPubkey []byte    `json:"ecdsaP256Pubkey"` // P256 (used for signing)
-	Timestamp       time.Time `json:"timestamp"`
+	Code               string    `json:"code"`
+	NebulaPubkeyX25519 []byte    `json:"dhPubkey"`         // X25519 (used for key exchange)
+	HostPubkeyEd25519  []byte    `json:"edPubkey"`         // Ed25519 (used for signing)
+	NebulaPubkeyP256   []byte    `json:"nebulaPubkeyP256"` // P256 (used for key exchange)
+	HostPubkeyP256     []byte    `json:"hostPubkeyP256"`   // P256 (used for signing)
+	Timestamp          time.Time `json:"timestamp"`
 }
 
 // EnrollResponse represents a response from the enrollment endpoint.

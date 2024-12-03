@@ -51,7 +51,7 @@ func TestEnroll(t *testing.T) {
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -161,7 +161,7 @@ func TestDoUpdate(t *testing.T) {
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -347,7 +347,7 @@ func TestCommandResponse(t *testing.T) {
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -442,7 +442,7 @@ func TestStreamCommandResponse(t *testing.T) {
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
