@@ -4,6 +4,7 @@ package dnapi
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/DefinedNet/dnapi/message"
 	"github.com/sirupsen/logrus"
-	"github.com/slackhq/nebula/cert"
 )
 
 // Client communicates with the API server.
@@ -96,13 +96,8 @@ type EnrollMeta struct {
 func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code string) ([]byte, []byte, *Credentials, *EnrollMeta, error) {
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making enrollment request to API")
 
-	// Generate initial Ed25519 keypair for API communication
+	// Generate keys for the enrollment request
 	keys, err := newKeys()
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
-	hostPubkeyP256, err := MarshalECDSAP256PublicKey(keys.ecdsaP256PublicKey)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -110,19 +105,21 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	// Make a request to the API with the enrollment code
 	jv, err := json.Marshal(message.EnrollRequest{
 		Code:               code,
-		NebulaPubkeyX25519: keys.x25519PublicKeyPEM,
-		HostPubkeyEd25519:  cert.MarshalEd25519PublicKey(ed25519.PublicKey(keys.ed25519PublicKey)),
-		NebulaPubkeyP256:   keys.ecdhP256PublicKeyPEM,
-		HostPubkeyP256:     hostPubkeyP256,
+		NebulaPubkeyX25519: keys.nebulaX25519PublicKeyPEM,
+		HostPubkeyEd25519:  keys.hostEd25519PublicKeyPEM,
+		NebulaPubkeyP256:   keys.nebulaP256PublicKeyPEM,
+		HostPubkeyP256:     keys.hostP256PublicKeyPEM,
 		Timestamp:          time.Now(),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+
 	enrollURL, err := url.JoinPath(c.dnServer, message.EnrollEndpoint)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", enrollURL, bytes.NewBuffer(jv))
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -164,7 +161,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		OrganizationName: r.Data.Organization.Name,
 	}
 
-	trustedKeys, err := Ed25519PublicKeysFromPEM(r.Data.TrustedKeys)
+	trustedKeys, err := TrustedPublicKeysFromPEM(r.Data.TrustedKeys)
 	if err != nil {
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to load trusted keys from bundle: %s", err), ReqID: reqID}
 	}
@@ -173,11 +170,11 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	var privkey PrivateKey
 	switch {
 	case r.Data.Network.Curve == message.NetworkCurve25519:
-		privkeyPEM = keys.x25519PrivateKeyPEM
-		privkey = Ed25519PrivateKey{keys.ed25519PrivateKey}
+		privkeyPEM = keys.nebulaX25519PrivateKeyPEM
+		privkey = Ed25519PrivateKey{keys.hostEd25519PrivateKey}
 	case r.Data.Network.Curve == message.NetworkCurveP256:
-		privkeyPEM = keys.ecdhP256PrivateKeyPEM
-		privkey = P256PrivateKey{keys.ecdsaP256PrivateKey}
+		privkeyPEM = keys.nebulaP256PrivateKeyPEM
+		privkey = P256PrivateKey{keys.hostP256PrivateKey}
 	default:
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unsupported curve type: %s", r.Data.Network.Curve), ReqID: reqID}
 	}
@@ -227,47 +224,46 @@ func (c *Client) LongPollWait(ctx context.Context, creds Credentials, supportedA
 	return &result.Data, nil
 }
 
-// DoUpdate sends a signed message to the DNClient API to fetch the new configuration update. During this call a new
-// DH X25519 keypair is generated for the new Nebula certificate as well as a new Ed25519 keypair for DNClient API
-// communication. On success it returns the new config, a Nebula private key PEM to be inserted into the config (see
-// api.InsertConfigPrivateKey) and new DNClient API credentials.
+// DoUpdate sends a signed message to the DNClient API to fetch the new configuration update. During this call new keys
+// are generated both for Nebula and DNClient API communication. If the API response is successful, the new configuration
+// is returned along with the new Nebula private key PEM and new DNClient API credentials.
+//
+// See dnapi.InsertConfigPrivateKey for how to insert the new Nebula private key into the configuration.
 func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byte, *Credentials, error) {
 	// Rotate keys
-	var privkeyPEM []byte  // ECDH
-	var privkey PrivateKey // ECDSA
+	var nebulaPrivkeyPEM []byte // ECDH
+	var hostPrivkey PrivateKey  // ECDSA
 
 	newKeys, err := newKeys()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to generate new keys: %s", err)
 	}
 
-	updateKeys := message.DoUpdateRequest{
+	msg := message.DoUpdateRequest{
 		Nonce: nonce(),
 	}
-	switch creds.PrivateKey.Type() {
-	case Ed25519:
-		updateKeys.EdPubkeyPEM = cert.MarshalEd25519PublicKey(ed25519.PublicKey(newKeys.ed25519PublicKey))
-		updateKeys.DHPubkeyPEM = newKeys.x25519PublicKeyPEM
-		privkeyPEM = newKeys.x25519PrivateKeyPEM
-		privkey = Ed25519PrivateKey{newKeys.ed25519PrivateKey}
-	case P256:
-		b, err := MarshalECDSAP256PublicKey(newKeys.ecdsaP256PublicKey)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to marshal ECDSA P256 public key: %s", err)
-		}
-		updateKeys.P256HostPubkeyPEM = b
-		updateKeys.P256NebulaPubkeyPEM = newKeys.ecdhP256PublicKeyPEM
-		privkeyPEM = newKeys.ecdhP256PrivateKeyPEM
-		privkey = P256PrivateKey{newKeys.ecdsaP256PrivateKey}
+
+	// Set the correct keypair based on the current private key type
+	switch creds.PrivateKey.Unwrap().(type) {
+	case ed25519.PrivateKey:
+		hostPrivkey = Ed25519PrivateKey{newKeys.hostEd25519PrivateKey}
+		nebulaPrivkeyPEM = newKeys.nebulaX25519PrivateKeyPEM
+		msg.EdPubkeyPEM = newKeys.hostEd25519PublicKeyPEM
+		msg.DHPubkeyPEM = newKeys.nebulaX25519PublicKeyPEM
+	case *ecdsa.PrivateKey:
+		hostPrivkey = P256PrivateKey{newKeys.hostP256PrivateKey}
+		nebulaPrivkeyPEM = newKeys.nebulaP256PrivateKeyPEM
+		msg.P256HostPubkeyPEM = newKeys.hostP256PublicKeyPEM
+		msg.P256NebulaPubkeyPEM = newKeys.nebulaP256PublicKeyPEM
 	}
 
-	updateKeysBlob, err := json.Marshal(updateKeys)
+	blob, err := json.Marshal(msg)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
 	}
 
 	// Make API call
-	resp, err := c.postDNClient(ctx, message.DoUpdate, updateKeysBlob, creds.HostID, creds.Counter, creds.PrivateKey)
+	resp, err := c.postDNClient(ctx, message.DoUpdate, blob, creds.HostID, creds.Counter, creds.PrivateKey)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
 	}
@@ -280,7 +276,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	// Verify the signature
 	valid := false
 	for _, caPubkey := range creds.TrustedKeys {
-		if ed25519.Verify(caPubkey, resultWrapper.Data.Message, resultWrapper.Data.Signature) {
+		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
 			valid = true
 			break
 		}
@@ -297,8 +293,8 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	}
 
 	// Verify the nonce
-	if !bytes.Equal(result.Nonce, updateKeys.Nonce) {
-		return nil, nil, nil, fmt.Errorf("nonce mismatch between request (%s) and response (%s)", updateKeys.Nonce, result.Nonce)
+	if !bytes.Equal(result.Nonce, msg.Nonce) {
+		return nil, nil, nil, fmt.Errorf("nonce mismatch between request (%s) and response (%s)", msg.Nonce, result.Nonce)
 	}
 
 	// Verify the counter
@@ -306,7 +302,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 		return nil, nil, nil, fmt.Errorf("counter in request (%d) should be less than counter in response (%d)", creds.Counter, result.Counter)
 	}
 
-	trustedKeys, err := Ed25519PublicKeysFromPEM(result.TrustedKeys)
+	trustedKeys, err := TrustedPublicKeysFromPEM(result.TrustedKeys)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to load trusted keys from bundle: %s", err)
 	}
@@ -314,11 +310,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 	newCreds := &Credentials{
 		HostID:      creds.HostID,
 		Counter:     result.Counter,
-		PrivateKey:  privkey,
+		PrivateKey:  hostPrivkey,
 		TrustedKeys: trustedKeys,
 	}
 
-	return result.Config, privkeyPEM, newCreds, nil
+	return result.Config, nebulaPrivkeyPEM, newCreds, nil
 }
 
 func (c *Client) CommandResponse(ctx context.Context, creds Credentials, responseToken string, response any) error {

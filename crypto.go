@@ -6,8 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io"
 
@@ -15,40 +13,32 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-const ECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
-
-// MarshalECDSAP256PublicKey is a simple helper to PEM encode an ECDSA P256 public key
-func MarshalECDSAP256PublicKey(k *ecdsa.PublicKey) ([]byte, error) {
-	b, err := x509.MarshalPKIXPublicKey(k)
-	if err != nil {
-		return nil, err
-	}
-	return pem.EncodeToMemory(&pem.Block{
-		Type:  ECDSAP256PublicKeyBanner,
-		Bytes: b,
-	}), nil
-}
-
-// PrivateKey is used to sign messages.
+// PrivateKey is an interface used to generically sign messages regardless of
+// the network curve (P256/25519.)
 type PrivateKey interface {
-	Type() PrivateKeyType
+	// Sign signs the message with the private key and returns the signature.
 	Sign(msg []byte) ([]byte, error)
+
+	// Unwrap returns the internal private key object (e.g. *ecdsa.PrivateKey or ed25519.PrivateKey.)
 	Unwrap() interface{}
+
+	// MarshalPEM returns the private key in PEM format.
+	MarshalPEM() ([]byte, error)
 }
 
-type PrivateKeyType int
-
-const (
-	P256    PrivateKeyType = iota
-	Ed25519 PrivateKeyType = iota
-)
+func NewPrivateKey(k any) (PrivateKey, error) {
+	switch k.(type) {
+	case *ecdsa.PrivateKey:
+		return P256PrivateKey{k.(*ecdsa.PrivateKey)}, nil
+	case ed25519.PrivateKey:
+		return Ed25519PrivateKey{k.(ed25519.PrivateKey)}, nil
+	default:
+		return nil, fmt.Errorf("unsupported private key type: %T", k)
+	}
+}
 
 type Ed25519PrivateKey struct {
 	ed25519.PrivateKey
-}
-
-func (k Ed25519PrivateKey) Type() PrivateKeyType {
-	return Ed25519
 }
 
 func (k Ed25519PrivateKey) Sign(msg []byte) ([]byte, error) {
@@ -59,12 +49,12 @@ func (k Ed25519PrivateKey) Unwrap() interface{} {
 	return k.PrivateKey
 }
 
-type P256PrivateKey struct {
-	*ecdsa.PrivateKey
+func (k Ed25519PrivateKey) MarshalPEM() ([]byte, error) {
+	return MarshalEd25519HostPrivateKey(k.PrivateKey)
 }
 
-func (k P256PrivateKey) Type() PrivateKeyType {
-	return P256
+type P256PrivateKey struct {
+	*ecdsa.PrivateKey
 }
 
 func (k P256PrivateKey) Sign(msg []byte) ([]byte, error) {
@@ -76,46 +66,69 @@ func (k P256PrivateKey) Unwrap() interface{} {
 	return k.PrivateKey
 }
 
-type initialKeys struct {
-	// 25519 Curve
-	x25519PublicKeyPEM  []byte             // ECDH
-	x25519PrivateKeyPEM []byte             // ECDH
-	ed25519PublicKey    []byte             // EdDSA
-	ed25519PrivateKey   ed25519.PrivateKey // EdDSA
-
-	// P256 Curve
-	ecdhP256PublicKeyPEM  []byte            // ECDH
-	ecdhP256PrivateKeyPEM []byte            // ECDH
-	ecdsaP256PublicKey    *ecdsa.PublicKey  // ECDSA
-	ecdsaP256PrivateKey   *ecdsa.PrivateKey // ECDSA, in spite of its type
+func (k P256PrivateKey) MarshalPEM() ([]byte, error) {
+	return MarshalP256HostPrivateKey(k.PrivateKey)
 }
 
-func newKeys() (*initialKeys, error) {
-	x25519PublicKeyPEM, x25519PrivateKeyPEM, ed25519PublicKey, ed25519PrivateKey, err := new25519Keys()
+// keys contains a set of P256 and X25519/Ed25519 keys. Only one set is used,
+// depending on the network the host is enrolled in. At the time of enrollment
+// clients do not know which curve the network uses, so both keys must be
+// generated.
+//
+// Most keys are returned in PEM format as the public keys are sent off to the
+// DN API and the private Nebula key is written to disk and parsed by the
+// Nebula library. The host private key is not marshalled to PEM here because
+// we will need it to sign requests.
+type keys struct {
+	// 25519 Curve
+	nebulaX25519PublicKeyPEM  []byte             // ECDH (Nebula)
+	nebulaX25519PrivateKeyPEM []byte             // ECDH (Nebula)
+	hostEd25519PublicKeyPEM   []byte             // EdDSA (DN API)
+	hostEd25519PrivateKey     ed25519.PrivateKey // EdDSA (DN API)
+
+	// P256 Curve
+	nebulaP256PublicKeyPEM  []byte            // ECDH (Nebula)
+	nebulaP256PrivateKeyPEM []byte            // ECDH (Nebula)
+	hostP256PublicKeyPEM    []byte            // ECDSA (DN API)
+	hostP256PrivateKey      *ecdsa.PrivateKey // ECDSA (DN API)
+}
+
+func newKeys() (*keys, error) {
+	x25519PublicKeyPEM, x25519PrivateKeyPEM, ed25519PublicKey, ed25519PrivateKey, err := newKeys25519()
 	if err != nil {
 		return nil, err
 	}
 
-	ecdhP256PublicKeyPEM, ecdhP256PrivateKeyPEM, ecdsaP256PublicKey, ecdsaP256PrivateKey, err := newP256Keys()
+	ecdhP256PublicKeyPEM, ecdhP256PrivateKeyPEM, ecdsaP256PublicKey, ecdsaP256PrivateKey, err := newKeysP256()
 	if err != nil {
 		return nil, err
 	}
 
-	return &initialKeys{
-		x25519PublicKeyPEM:    x25519PublicKeyPEM,
-		x25519PrivateKeyPEM:   x25519PrivateKeyPEM,
-		ed25519PublicKey:      ed25519PublicKey,
-		ed25519PrivateKey:     ed25519PrivateKey,
-		ecdhP256PublicKeyPEM:  ecdhP256PublicKeyPEM,
-		ecdhP256PrivateKeyPEM: ecdhP256PrivateKeyPEM,
-		ecdsaP256PublicKey:    ecdsaP256PublicKey,
-		ecdsaP256PrivateKey:   ecdsaP256PrivateKey,
+	ed25519PublicKeyPEM, err := MarshalEd25519HostPublicKey(ed25519PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	ecdsaP256PublicKeyPEM, err := MarshalP256HostPublicKey(ecdsaP256PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &keys{
+		nebulaX25519PublicKeyPEM:  x25519PublicKeyPEM,
+		nebulaX25519PrivateKeyPEM: x25519PrivateKeyPEM,
+		hostEd25519PublicKeyPEM:   ed25519PublicKeyPEM,
+		hostEd25519PrivateKey:     ed25519PrivateKey,
+		nebulaP256PublicKeyPEM:    ecdhP256PublicKeyPEM,
+		nebulaP256PrivateKeyPEM:   ecdhP256PrivateKeyPEM,
+		hostP256PublicKeyPEM:      ecdsaP256PublicKeyPEM,
+		hostP256PrivateKey:        ecdsaP256PrivateKey,
 	}, nil
 }
 
-// new25519Keys returns a new set of Nebula (Diffie-Hellman) keys and a new set of Ed25519 (request signing) keys.
-func new25519Keys() ([]byte, []byte, ed25519.PublicKey, ed25519.PrivateKey, error) {
-	dhPubkeyPEM, dhPrivkeyPEM, err := newNebulaX25519Keypair()
+// newKeys25519 returns a new set of Nebula (Diffie-Hellman) keys and a new set of Ed25519 (request signing) keys.
+func newKeys25519() ([]byte, []byte, ed25519.PublicKey, ed25519.PrivateKey, error) {
+	dhPubkeyPEM, dhPrivkeyPEM, err := newNebulaX25519KeypairPEM()
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to generate Nebula keypair: %s", err)
 	}
@@ -128,9 +141,9 @@ func new25519Keys() ([]byte, []byte, ed25519.PublicKey, ed25519.PrivateKey, erro
 	return dhPubkeyPEM, dhPrivkeyPEM, edPubkey, edPrivkey, nil
 }
 
-// newP256Keys returns a new set of Nebula (Diffie-Hellman) ECDH P256 keys and a new set of ECDSA (request signing) keys.
-func newP256Keys() ([]byte, []byte, *ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
-	ecdhPubkeyPEM, ecdhPrivkeyPEM, err := newNebulaP256Keypair()
+// newKeysP256 returns a new set of Nebula (Diffie-Hellman) ECDH P256 keys and a new set of ECDSA (request signing) keys.
+func newKeysP256() ([]byte, []byte, *ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
+	ecdhPubkeyPEM, ecdhPrivkeyPEM, err := newNebulaP256KeypairPEM()
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to generate Nebula keypair: %s", err)
 	}
@@ -141,17 +154,6 @@ func newP256Keys() ([]byte, []byte, *ecdsa.PublicKey, *ecdsa.PrivateKey, error) 
 	}
 
 	return ecdhPubkeyPEM, ecdhPrivkeyPEM, ecdsaPubkey, ecdsaPrivkey, nil
-}
-
-// newNebulaX25519Keypair returns a new Nebula keypair (X25519) in PEM format.
-func newNebulaX25519Keypair() ([]byte, []byte, error) {
-	pubkey, privkey, err := newX25519Keypair()
-	if err != nil {
-		return nil, nil, err
-	}
-	pubkey, privkey = cert.MarshalX25519PublicKey(pubkey), cert.MarshalX25519PrivateKey(privkey)
-
-	return pubkey, privkey, nil
 }
 
 // newX25519Keypair create a pair of X25519 public key and private key and returns them, in that order.
@@ -178,8 +180,29 @@ func newEd25519Keypair() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 	return pub, priv, nil
 }
 
-// newNebulaP256Keypair returns a new Nebula keypair (P256) in PEM format.
-func newNebulaP256Keypair() ([]byte, []byte, error) {
+// newP256Keypair create a pair of P256 public key and private key and returns them, in that order.
+func newP256Keypair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
+	privkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error while generating ecdsa keys: %s", err)
+	}
+
+	return privkey.Public().(*ecdsa.PublicKey), privkey, nil
+}
+
+// newNebulaX25519KeypairPEM returns a new Nebula keypair (X25519) in PEM format.
+func newNebulaX25519KeypairPEM() ([]byte, []byte, error) {
+	pubkey, privkey, err := newX25519Keypair()
+	if err != nil {
+		return nil, nil, err
+	}
+	pubkey, privkey = cert.MarshalX25519PublicKey(pubkey), cert.MarshalX25519PrivateKey(privkey)
+
+	return pubkey, privkey, nil
+}
+
+// newNebulaP256KeypairPEM returns a new Nebula keypair (P256) in PEM format.
+func newNebulaP256KeypairPEM() ([]byte, []byte, error) {
 	rawPrivkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error while generating ecdsa keys: %s", err)
@@ -194,16 +217,6 @@ func newNebulaP256Keypair() ([]byte, []byte, error) {
 	privkey := cert.MarshalPrivateKey(cert.Curve_P256, ecdhPrivkey.Bytes())
 
 	return pubkey, privkey, nil
-}
-
-// newP256Keypair create a pair of P256 public key and private key and returns them, in that order.
-func newP256Keypair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
-	privkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error while generating ecdsa keys: %s", err)
-	}
-
-	return privkey.Public().(*ecdsa.PublicKey), privkey, nil
 }
 
 func nonce() []byte {
