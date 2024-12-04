@@ -134,7 +134,7 @@ func UnmarshalP256HostPrivateKey(b []byte) (*ecdsa.PrivateKey, []byte, error) {
 	return pkey, r, nil
 }
 
-func UnmarshalTrustedPublicKey(b []byte) (TrustedPublicKey, []byte, error) {
+func UnmarshalTrustedKey(b []byte) (TrustedKey, []byte, error) {
 	k, r := pem.Decode(b)
 	if k == nil {
 		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
@@ -142,12 +142,12 @@ func UnmarshalTrustedPublicKey(b []byte) (TrustedPublicKey, []byte, error) {
 	switch k.Type {
 	case NebulaECDSAP256PublicKeyBanner:
 		x, y := elliptic.Unmarshal(elliptic.P256(), k.Bytes)
-		return P256TrustedPublicKey{&ecdsa.PublicKey{X: x, Y: y, Curve: elliptic.P256()}}, r, nil
+		return P256TrustedKey{&ecdsa.PublicKey{X: x, Y: y, Curve: elliptic.P256()}}, r, nil
 	case NebulaEd25519PublicKeyBanner:
 		if len(k.Bytes) != ed25519.PublicKeySize {
 			return nil, r, fmt.Errorf("key was not 32 bytes, is invalid ed25519 public key")
 		}
-		return Ed25519TrustedPublicKey{ed25519.PublicKey(k.Bytes)}, r, nil
+		return Ed25519TrustedKey{ed25519.PublicKey(k.Bytes)}, r, nil
 	default:
 		return nil, r, fmt.Errorf("input did not contain a valid public key banner")
 	}

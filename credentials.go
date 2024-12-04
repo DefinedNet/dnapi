@@ -8,49 +8,60 @@ import (
 	"encoding/pem"
 )
 
-// TrustedPublicKey is an interface used to generically verify signatures
-// returned from the DN API regardless of whether the key is P256 or 25519.
-type TrustedPublicKey interface {
+// Credentials contains information necessary to make requests against the DNClient API.
+type Credentials struct {
+	HostID      string
+	PrivateKey  PrivateKey
+	Counter     uint
+	TrustedKeys []TrustedKey
+}
+
+// TrustedKey is an interface used to generically verify signatures returned
+// from the DN API regardless of whether the key is P256 or 25519.
+type TrustedKey interface {
 	Verify(data []byte, sig []byte) bool
 	Unwrap() any
 	MarshalPEM() ([]byte, error)
 }
 
-type Ed25519TrustedPublicKey struct {
+// Ed25519TrustedKey is the Ed25519 implementation of TrustedKey.
+type Ed25519TrustedKey struct {
 	ed25519.PublicKey
 }
 
-func (key Ed25519TrustedPublicKey) Verify(data []byte, sig []byte) bool {
+func (key Ed25519TrustedKey) Verify(data []byte, sig []byte) bool {
 	return ed25519.Verify(key.PublicKey, data, sig)
 }
 
-func (key Ed25519TrustedPublicKey) Unwrap() any {
+func (key Ed25519TrustedKey) Unwrap() any {
 	return key.PublicKey
 }
 
-func (key Ed25519TrustedPublicKey) MarshalPEM() ([]byte, error) {
+func (key Ed25519TrustedKey) MarshalPEM() ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: NebulaEd25519PublicKeyBanner, Bytes: key.PublicKey}), nil
 }
 
-type P256TrustedPublicKey struct {
+// P256TrustedKey is the P256 implementation of TrustedKey.
+type P256TrustedKey struct {
 	*ecdsa.PublicKey
 }
 
-func (key P256TrustedPublicKey) Verify(data []byte, sig []byte) bool {
+func (key P256TrustedKey) Verify(data []byte, sig []byte) bool {
 	hash := sha256.Sum256(data)
 	return ecdsa.VerifyASN1(key.PublicKey, hash[:], sig)
 }
 
-func (key P256TrustedPublicKey) Unwrap() any {
+func (key P256TrustedKey) Unwrap() any {
 	return key.PublicKey
 }
 
-func (key P256TrustedPublicKey) MarshalPEM() ([]byte, error) {
+func (key P256TrustedKey) MarshalPEM() ([]byte, error) {
 	b := elliptic.Marshal(elliptic.P256(), key.X, key.Y)
 	return pem.EncodeToMemory(&pem.Block{Type: NebulaECDSAP256PublicKeyBanner, Bytes: b}), nil
 }
 
-func TrustedPublicKeysToPEM(keys []TrustedPublicKey) ([]byte, error) {
+// TrustedKeysToPEM converts a slice of TrustedKey to a PEM-encoded byte slice.
+func TrustedKeysToPEM(keys []TrustedKey) ([]byte, error) {
 	result := []byte{}
 	for _, key := range keys {
 		pem, err := key.MarshalPEM()
@@ -62,12 +73,13 @@ func TrustedPublicKeysToPEM(keys []TrustedPublicKey) ([]byte, error) {
 	return result, nil
 }
 
-func TrustedPublicKeysFromPEM(pemKeys []byte) ([]TrustedPublicKey, error) {
-	keys := []TrustedPublicKey{}
+// TrustedKeysFromPEM converts a PEM-encoded byte slice to a slice of TrustedKey.
+func TrustedKeysFromPEM(pemKeys []byte) ([]TrustedKey, error) {
+	keys := []TrustedKey{}
 	for len(pemKeys) > 0 {
 		var err error
-		var pubkey TrustedPublicKey
-		pubkey, pemKeys, err = UnmarshalTrustedPublicKey(pemKeys)
+		var pubkey TrustedKey
+		pubkey, pemKeys, err = UnmarshalTrustedKey(pemKeys)
 		if err != nil {
 			return nil, err
 		}
@@ -75,12 +87,4 @@ func TrustedPublicKeysFromPEM(pemKeys []byte) ([]TrustedPublicKey, error) {
 	}
 
 	return keys, nil
-}
-
-// Credentials contains information necessary to make requests against the DNClient API.
-type Credentials struct {
-	HostID      string
-	PrivateKey  PrivateKey
-	Counter     uint
-	TrustedKeys []TrustedPublicKey
 }

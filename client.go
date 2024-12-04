@@ -161,22 +161,23 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		OrganizationName: r.Data.Organization.Name,
 	}
 
-	trustedKeys, err := TrustedPublicKeysFromPEM(r.Data.TrustedKeys)
-	if err != nil {
-		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to load trusted keys from bundle: %s", err), ReqID: reqID}
-	}
-
+	// Determine the private keys to save based on the network curve type
 	var privkeyPEM []byte
 	var privkey PrivateKey
-	switch {
-	case r.Data.Network.Curve == message.NetworkCurve25519:
+	switch r.Data.Network.Curve {
+	case message.NetworkCurve25519:
 		privkeyPEM = keys.nebulaX25519PrivateKeyPEM
 		privkey = Ed25519PrivateKey{keys.hostEd25519PrivateKey}
-	case r.Data.Network.Curve == message.NetworkCurveP256:
+	case message.NetworkCurveP256:
 		privkeyPEM = keys.nebulaP256PrivateKeyPEM
 		privkey = P256PrivateKey{keys.hostP256PrivateKey}
 	default:
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unsupported curve type: %s", r.Data.Network.Curve), ReqID: reqID}
+	}
+
+	trustedKeys, err := TrustedKeysFromPEM(r.Data.TrustedKeys)
+	if err != nil {
+		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to load trusted keys from bundle: %s", err), ReqID: reqID}
 	}
 
 	creds := &Credentials{
@@ -302,7 +303,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds Credentials) ([]byte, []byt
 		return nil, nil, nil, fmt.Errorf("counter in request (%d) should be less than counter in response (%d)", creds.Counter, result.Counter)
 	}
 
-	trustedKeys, err := TrustedPublicKeysFromPEM(result.TrustedKeys)
+	trustedKeys, err := TrustedKeysFromPEM(result.TrustedKeys)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to load trusted keys from bundle: %s", err)
 	}
