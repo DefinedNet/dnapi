@@ -1,4 +1,4 @@
-package dnapi
+package keys
 
 import (
 	"crypto/ecdsa"
@@ -70,7 +70,7 @@ func (k P256PrivateKey) MarshalPEM() ([]byte, error) {
 	return MarshalP256HostPrivateKey(k.PrivateKey)
 }
 
-// keys contains a set of P256 and X25519/Ed25519 keys. Only one set is used,
+// Keys contains a set of P256 and X25519/Ed25519 keys. Only one set is used,
 // depending on the network the host is enrolled in. At the time of enrollment
 // clients do not know which curve the network uses, so both keys must be
 // generated.
@@ -79,21 +79,21 @@ func (k P256PrivateKey) MarshalPEM() ([]byte, error) {
 // DN API and the private Nebula key is written to disk and parsed by the
 // Nebula library. The host private key is not marshalled to PEM here because
 // we will need it to sign requests.
-type keys struct {
+type Keys struct {
 	// 25519 Curve
-	nebulaX25519PublicKeyPEM  []byte             // ECDH (Nebula)
-	nebulaX25519PrivateKeyPEM []byte             // ECDH (Nebula)
-	hostEd25519PublicKeyPEM   []byte             // EdDSA (DN API)
-	hostEd25519PrivateKey     ed25519.PrivateKey // EdDSA (DN API)
+	NebulaX25519PublicKeyPEM  []byte             // ECDH (Nebula)
+	NebulaX25519PrivateKeyPEM []byte             // ECDH (Nebula)
+	HostEd25519PublicKeyPEM   []byte             // EdDSA (DN API)
+	HostEd25519PrivateKey     ed25519.PrivateKey // EdDSA (DN API)
 
 	// P256 Curve
-	nebulaP256PublicKeyPEM  []byte            // ECDH (Nebula)
-	nebulaP256PrivateKeyPEM []byte            // ECDH (Nebula)
-	hostP256PublicKeyPEM    []byte            // ECDSA (DN API)
-	hostP256PrivateKey      *ecdsa.PrivateKey // ECDSA (DN API)
+	NebulaP256PublicKeyPEM  []byte            // ECDH (Nebula)
+	NebulaP256PrivateKeyPEM []byte            // ECDH (Nebula)
+	HostP256PublicKeyPEM    []byte            // ECDSA (DN API)
+	HostP256PrivateKey      *ecdsa.PrivateKey // ECDSA (DN API)
 }
 
-func newKeys() (*keys, error) {
+func New() (*Keys, error) {
 	x25519PublicKeyPEM, x25519PrivateKeyPEM, ed25519PublicKey, ed25519PrivateKey, err := newKeys25519()
 	if err != nil {
 		return nil, err
@@ -114,15 +114,15 @@ func newKeys() (*keys, error) {
 		return nil, err
 	}
 
-	return &keys{
-		nebulaX25519PublicKeyPEM:  x25519PublicKeyPEM,
-		nebulaX25519PrivateKeyPEM: x25519PrivateKeyPEM,
-		hostEd25519PublicKeyPEM:   ed25519PublicKeyPEM,
-		hostEd25519PrivateKey:     ed25519PrivateKey,
-		nebulaP256PublicKeyPEM:    ecdhP256PublicKeyPEM,
-		nebulaP256PrivateKeyPEM:   ecdhP256PrivateKeyPEM,
-		hostP256PublicKeyPEM:      ecdsaP256PublicKeyPEM,
-		hostP256PrivateKey:        ecdsaP256PrivateKey,
+	return &Keys{
+		NebulaX25519PublicKeyPEM:  x25519PublicKeyPEM,
+		NebulaX25519PrivateKeyPEM: x25519PrivateKeyPEM,
+		HostEd25519PublicKeyPEM:   ed25519PublicKeyPEM,
+		HostEd25519PrivateKey:     ed25519PrivateKey,
+		NebulaP256PublicKeyPEM:    ecdhP256PublicKeyPEM,
+		NebulaP256PrivateKeyPEM:   ecdhP256PrivateKeyPEM,
+		HostP256PublicKeyPEM:      ecdsaP256PublicKeyPEM,
+		HostP256PrivateKey:        ecdsaP256PrivateKey,
 	}, nil
 }
 
@@ -217,12 +217,4 @@ func newNebulaP256KeypairPEM() ([]byte, []byte, error) {
 	privkey := cert.MarshalPrivateKey(cert.Curve_P256, ecdhPrivkey.Bytes())
 
 	return pubkey, privkey, nil
-}
-
-func nonce() []byte {
-	nonce := make([]byte, 16)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err)
-	}
-	return nonce
 }

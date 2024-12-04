@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"time"
 
+	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
 	"github.com/slackhq/nebula/cert"
 	"gopkg.in/yaml.v2"
@@ -95,7 +96,7 @@ func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) SetEdPubkey(edPubkeyPEM []byte) error {
 	// hard failure, return
-	edPubkey, rest, err := cert.UnmarshalEd25519PublicKey(edPubkeyPEM)
+	edPubkey, rest, err := keys.UnmarshalEd25519HostPublicKey(edPubkeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal ed pubkey: %w", err)
 	}

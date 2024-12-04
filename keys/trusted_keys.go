@@ -1,4 +1,4 @@
-package dnapi
+package keys
 
 import (
 	"crypto/ecdsa"
@@ -7,14 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/pem"
 )
-
-// Credentials contains information necessary to make requests against the DNClient API.
-type Credentials struct {
-	HostID      string
-	PrivateKey  PrivateKey
-	Counter     uint
-	TrustedKeys []TrustedKey
-}
 
 // TrustedKey is an interface used to generically verify signatures returned
 // from the DN API regardless of whether the key is P256 or 25519.

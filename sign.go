@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
 )
 
-func SignRequestV1(reqType string, value []byte, hostID string, counter uint, privkey PrivateKey) ([]byte, error) {
+func SignRequestV1(reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) ([]byte, error) {
 	encMsg, err := json.Marshal(message.RequestWrapper{
 		Type:      reqType,
 		Value:     value,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/DefinedNet/dnapi/dnapitest"
 	"github.com/DefinedNet/dnapi/internal/testutil"
+	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
 	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/cert"
@@ -89,7 +90,7 @@ func TestEnroll(t *testing.T) {
 
 	assert.Equal(t, hostID, creds.HostID)
 	assert.Equal(t, counter, creds.Counter)
-	assert.Equal(t, []ed25519.PublicKey{ca.Details.PublicKey}, creds.TrustedKeys)
+	assert.Equal(t, []keys.TrustedKey{keys.Ed25519TrustedKey{ca.Details.PublicKey}}, creds.TrustedKeys)
 	assert.NotEmpty(t, creds.PrivateKey)
 	assert.NotEmpty(t, pkey)
 
@@ -196,7 +197,8 @@ func TestDoUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// convert privkey to private key
-	pubkey := cert.MarshalEd25519PublicKey(creds.PrivateKey.Unwrap().(ed25519.PrivateKey).Public().(ed25519.PublicKey))
+	pubkey, err := keys.MarshalEd25519HostPublicKey(creds.PrivateKey.Unwrap().(ed25519.PrivateKey).Public().(ed25519.PublicKey))
+	require.NoError(t, err)
 
 	// make sure all credential values were set
 	assert.NotEmpty(t, creds.HostID)
@@ -214,11 +216,11 @@ func TestDoUpdate(t *testing.T) {
 	})
 
 	// Create a new, invalid requesting authentication key
-	_, invalidPrivKey, err := newEd25519Keypair()
+	nk, err := keys.New()
 	require.NoError(t, err)
-	invalidCreds := Credentials{
+	invalidCreds := keys.Credentials{
 		HostID:      creds.HostID,
-		PrivateKey:  Ed25519PrivateKey{invalidPrivKey},
+		PrivateKey:  keys.Ed25519PrivateKey{nk.HostEd25519PrivateKey},
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
@@ -241,7 +243,7 @@ func TestDoUpdate(t *testing.T) {
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
-		_, newPrivkey, err := newEd25519Keypair()
+		nk, err := keys.New()
 		require.NoError(t, err)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
@@ -253,7 +255,7 @@ func TestDoUpdate(t *testing.T) {
 			Data: message.SignedResponse{
 				Version:   1,
 				Message:   rawRes,
-				Signature: ed25519.Sign(newPrivkey, rawRes),
+				Signature: ed25519.Sign(nk.HostEd25519PrivateKey, rawRes),
 			},
 		})
 	})

@@ -1,4 +1,4 @@
-package dnapi
+package keys
 
 import (
 	"crypto/ecdsa"
