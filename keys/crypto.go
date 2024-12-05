@@ -27,11 +27,11 @@ type PrivateKey interface {
 }
 
 func NewPrivateKey(k any) (PrivateKey, error) {
-	switch k.(type) {
+	switch k := k.(type) {
 	case *ecdsa.PrivateKey:
-		return P256PrivateKey{k.(*ecdsa.PrivateKey)}, nil
+		return P256PrivateKey{k}, nil
 	case ed25519.PrivateKey:
-		return Ed25519PrivateKey{k.(ed25519.PrivateKey)}, nil
+		return Ed25519PrivateKey{k}, nil
 	default:
 		return nil, fmt.Errorf("unsupported private key type: %T", k)
 	}

@@ -169,10 +169,16 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	switch r.Data.Network.Curve {
 	case message.NetworkCurve25519:
 		privkeyPEM = newKeys.NebulaX25519PrivateKeyPEM
-		privkey = keys.Ed25519PrivateKey{newKeys.HostEd25519PrivateKey}
+		privkey, err = keys.NewPrivateKey(newKeys.HostEd25519PrivateKey)
+		if err != nil {
+			return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to create new private key: %s", err), ReqID: reqID}
+		}
 	case message.NetworkCurveP256:
 		privkeyPEM = newKeys.NebulaP256PrivateKeyPEM
-		privkey = keys.P256PrivateKey{newKeys.HostP256PrivateKey}
+		privkey, err = keys.NewPrivateKey(newKeys.HostP256PrivateKey)
+		if err != nil {
+			return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to create new private key: %s", err), ReqID: reqID}
+		}
 	default:
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unsupported curve type: %s", r.Data.Network.Curve), ReqID: reqID}
 	}
@@ -249,15 +255,21 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 	// Set the correct keypair based on the current private key type
 	switch creds.PrivateKey.Unwrap().(type) {
 	case ed25519.PrivateKey:
-		hostPrivkey = keys.Ed25519PrivateKey{newKeys.HostEd25519PrivateKey}
+		hostPrivkey, err = keys.NewPrivateKey(newKeys.HostEd25519PrivateKey)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create new private key: %s", err)
+		}
 		nebulaPrivkeyPEM = newKeys.NebulaX25519PrivateKeyPEM
-		msg.EdPubkeyPEM = newKeys.HostEd25519PublicKeyPEM
-		msg.DHPubkeyPEM = newKeys.NebulaX25519PublicKeyPEM
+		msg.HostPubkeyEd25519 = newKeys.HostEd25519PublicKeyPEM
+		msg.NebulaPubkeyX25519 = newKeys.NebulaX25519PublicKeyPEM
 	case *ecdsa.PrivateKey:
-		hostPrivkey = keys.P256PrivateKey{newKeys.HostP256PrivateKey}
+		hostPrivkey, err = keys.NewPrivateKey(newKeys.HostP256PrivateKey)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create new private key: %s", err)
+		}
 		nebulaPrivkeyPEM = newKeys.NebulaP256PrivateKeyPEM
-		msg.P256HostPubkeyPEM = newKeys.HostP256PublicKeyPEM
-		msg.P256NebulaPubkeyPEM = newKeys.NebulaP256PublicKeyPEM
+		msg.HostPubkeyP256 = newKeys.HostP256PublicKeyPEM
+		msg.NebulaPubkeyP256 = newKeys.NebulaP256PublicKeyPEM
 	}
 
 	blob, err := json.Marshal(msg)

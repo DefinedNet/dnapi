@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/pem"
+	"fmt"
 )
 
 // TrustedKey is an interface used to generically verify signatures returned
@@ -14,6 +15,17 @@ type TrustedKey interface {
 	Verify(data []byte, sig []byte) bool
 	Unwrap() any
 	MarshalPEM() ([]byte, error)
+}
+
+func NewTrustedKey(k any) (TrustedKey, error) {
+	switch k := k.(type) {
+	case *ecdsa.PublicKey:
+		return P256TrustedKey{k}, nil
+	case ed25519.PublicKey:
+		return Ed25519TrustedKey{k}, nil
+	default:
+		return nil, fmt.Errorf("unsupported private key type: %T", k)
+	}
 }
 
 // Ed25519TrustedKey is the Ed25519 implementation of TrustedKey.

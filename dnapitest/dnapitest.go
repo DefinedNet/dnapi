@@ -1,12 +1,19 @@
+// Package dnapitest contains utilities for testing the dnapi package. Be aware
+// that any function in this package may panic on error.
 package dnapitest
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,12 +33,17 @@ type Server struct {
 
 	errors []error
 
+	streamedBody []byte
+
 	expectedRequests []requestResponse
 
-	expectedEdPubkey  ed25519.PublicKey
+	expectedEdPubkey   ed25519.PublicKey
+	expectedP256Pubkey *ecdsa.PublicKey
+
 	expectedUserAgent string
 
-	streamedBody []byte
+	// curve is set by the enroll request (which must match expectedEnrollment)
+	curve message.NetworkCurve
 }
 
 func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
@@ -85,11 +97,21 @@ func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
 		s.errors = append(s.errors, fmt.Errorf("missing timestamp"))
 	}
 
-	if err := s.SetEdPubkey(req.HostPubkeyEd25519); err != nil {
-		s.errors = append(s.errors, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if res.curve == message.NetworkCurve25519 {
+		if err := s.SetEdPubkey(req.HostPubkeyEd25519); err != nil {
+			s.errors = append(s.errors, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if res.curve == message.NetworkCurveP256 {
+		if err := s.SetP256Pubkey(req.HostPubkeyP256); err != nil {
+			s.errors = append(s.errors, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
+
+	s.curve = res.curve
 
 	w.Write(res.response(req))
 }
@@ -101,6 +123,22 @@ func (s *Server) SetEdPubkey(edPubkeyPEM []byte) error {
 		return fmt.Errorf("failed to unmarshal ed pubkey: %w", err)
 	}
 	s.expectedEdPubkey = edPubkey
+
+	// soft failure, log it and avoid bailing the request
+	if len(rest) > 0 {
+		s.errors = append(s.errors, fmt.Errorf("unexpected trailer in ed pubkey: %s", rest))
+	}
+
+	return nil
+}
+
+func (s *Server) SetP256Pubkey(p256PubkeyPEM []byte) error {
+	// hard failure, return
+	pubkey, rest, err := keys.UnmarshalP256HostPublicKey(p256PubkeyPEM)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal P256 pubkey: %w", err)
+	}
+	s.expectedP256Pubkey = pubkey
 
 	// soft failure, log it and avoid bailing the request
 	if len(rest) > 0 {
@@ -132,9 +170,33 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Assert that the signature is correct
-	if !ed25519.Verify(s.expectedEdPubkey, []byte(req.Message), req.Signature) {
-		s.errors = append(s.errors, fmt.Errorf("invalid signature"))
-		http.Error(w, "invalid signature", http.StatusUnauthorized)
+	switch s.curve {
+	case message.NetworkCurve25519:
+		if !ed25519.Verify(s.expectedEdPubkey, []byte(req.Message), req.Signature) {
+			s.errors = append(s.errors, fmt.Errorf("invalid signature"))
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+	case message.NetworkCurveP256:
+		// Convert the signature to a format Go understands
+		var esig struct {
+			R, S *big.Int
+		}
+		if _, err := asn1.Unmarshal(req.Signature, &esig); err != nil {
+			s.errors = append(s.errors, fmt.Errorf("failed to unmarshal signature: %w", err))
+			http.Error(w, "failed to unmarshal signature", http.StatusInternalServerError)
+			return
+		}
+
+		hashed := sha256.Sum256([]byte(req.Message))
+		if !ecdsa.Verify(s.expectedP256Pubkey, hashed[:], esig.R, esig.S) {
+			s.errors = append(s.errors, fmt.Errorf("invalid signature"))
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+	default:
+		s.errors = append(s.errors, fmt.Errorf("invalid curve"))
+		http.Error(w, "invalid curve", http.StatusInternalServerError)
 		return
 	}
 
@@ -171,9 +233,22 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := s.SetEdPubkey(updateKeys.EdPubkeyPEM); err != nil {
-			s.errors = append(s.errors, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		switch s.curve {
+		case message.NetworkCurve25519:
+			if err := s.SetEdPubkey(updateKeys.HostPubkeyEd25519); err != nil {
+				s.errors = append(s.errors, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case message.NetworkCurveP256:
+			if err := s.SetP256Pubkey(updateKeys.HostPubkeyP256); err != nil {
+				s.errors = append(s.errors, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		default:
+			s.errors = append(s.errors, fmt.Errorf("invalid curve"))
+			http.Error(w, "invalid curve", http.StatusInternalServerError)
 			return
 		}
 
@@ -217,12 +292,13 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 	w.Write(res.response(msg))
 }
 
-func (s *Server) ExpectEnrollment(code string, response func(req message.EnrollRequest) []byte) {
+func (s *Server) ExpectEnrollment(code string, curve message.NetworkCurve, response func(req message.EnrollRequest) []byte) {
 	s.expectedRequests = append(s.expectedRequests, requestResponse{
 		dnclientAPI: false,
 		enrollRequestResponse: enrollRequestResponse{
 			expectedCode: code,
 			response:     response,
+			curve:        curve,
 		},
 	})
 }
@@ -291,6 +367,7 @@ type requestResponse struct {
 
 type enrollRequestResponse struct {
 	expectedCode string
+	curve        message.NetworkCurve
 
 	response func(r message.EnrollRequest) []byte
 }
@@ -365,7 +442,47 @@ func NebulaCACert() (*cert.NebulaCertificate, ed25519.PrivateKey) {
 			IsCA:      true,
 		},
 	}
-	nc.Sign(nc.Details.Curve, priv)
+	err = nc.Sign(nc.Details.Curve, priv)
+	if err != nil {
+		panic(err)
+	}
 
 	return nc, priv
+}
+
+func NebulaCACertP256() (*cert.NebulaCertificate, *ecdsa.PrivateKey) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	// ecdh.PrivateKey lets us get at the encoded bytes, even though
+	// we aren't using ECDH here.
+	eKey, err := key.ECDH()
+	if err != nil {
+		panic(err)
+	}
+
+	rawPriv := eKey.Bytes()
+	pub := eKey.PublicKey().Bytes()
+
+	nc := &cert.NebulaCertificate{
+		Details: cert.NebulaCertificateDetails{
+			Curve:     cert.Curve_P256,
+			Name:      "UnitTesting",
+			Groups:    []string{"testa", "testb"},
+			Ips:       []*net.IPNet{},
+			Subnets:   []*net.IPNet{},
+			NotBefore: time.Now(),
+			NotAfter:  time.Now().Add(24 * time.Hour),
+			PublicKey: pub,
+			IsCA:      true,
+		},
+	}
+	err = nc.Sign(nc.Details.Curve, rawPriv)
+	if err != nil {
+		panic(err)
+	}
+
+	return nc, key
 }
