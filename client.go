@@ -104,13 +104,23 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, err
 	}
 
+	hostEd25519PublicKeyPEM, err := newKeys.HostEd25519PublicKey.MarshalPEM()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	hostP256PublicKeyPEM, err := newKeys.HostP256PublicKey.MarshalPEM()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	// Make a request to the API with the enrollment code
 	jv, err := json.Marshal(message.EnrollRequest{
 		Code:               code,
 		NebulaPubkeyX25519: newKeys.NebulaX25519PublicKeyPEM,
-		HostPubkeyEd25519:  newKeys.HostEd25519PublicKeyPEM,
+		HostPubkeyEd25519:  hostEd25519PublicKeyPEM,
 		NebulaPubkeyP256:   newKeys.NebulaP256PublicKeyPEM,
-		HostPubkeyP256:     newKeys.HostP256PublicKeyPEM,
+		HostPubkeyP256:     hostP256PublicKeyPEM,
 		Timestamp:          time.Now(),
 	})
 	if err != nil {
@@ -249,14 +259,22 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 	// Set the correct keypair based on the current private key type
 	switch creds.PrivateKey.Unwrap().(type) {
 	case ed25519.PrivateKey:
+		hostPubkeyPEM, err := newKeys.HostEd25519PublicKey.MarshalPEM()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to marshal Ed25519 public key: %s", err)
+		}
 		hostPrivkey = newKeys.HostEd25519PrivateKey
 		nebulaPrivkeyPEM = newKeys.NebulaX25519PrivateKeyPEM
-		msg.HostPubkeyEd25519 = newKeys.HostEd25519PublicKeyPEM
+		msg.HostPubkeyEd25519 = hostPubkeyPEM
 		msg.NebulaPubkeyX25519 = newKeys.NebulaX25519PublicKeyPEM
 	case *ecdsa.PrivateKey:
+		hostPubkeyPEM, err := newKeys.HostP256PublicKey.MarshalPEM()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to marshal P256 public key: %s", err)
+		}
 		hostPrivkey = newKeys.HostP256PrivateKey
 		nebulaPrivkeyPEM = newKeys.NebulaP256PrivateKeyPEM
-		msg.HostPubkeyP256 = newKeys.HostP256PublicKeyPEM
+		msg.HostPubkeyP256 = hostPubkeyPEM
 		msg.NebulaPubkeyP256 = newKeys.NebulaP256PublicKeyPEM
 	}
 

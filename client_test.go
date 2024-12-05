@@ -204,7 +204,7 @@ func TestDoUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// convert privkey to private key
-	pubkey, err := keys.MarshalEd25519HostPublicKey(creds.PrivateKey.Unwrap().(ed25519.PrivateKey).Public().(ed25519.PublicKey))
+	pubkey, err := keys.MarshalEd25519HostPublicKey(creds.PrivateKey.Public().Unwrap().(ed25519.PublicKey))
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -395,7 +395,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.NoError(t, err)
 
 	// convert privkey to private key
-	pubkey, err := keys.MarshalP256HostPublicKey(creds.PrivateKey.Unwrap().(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey))
+	pubkey, err := keys.MarshalP256HostPublicKey(creds.PrivateKey.Public().Unwrap().(*ecdsa.PublicKey))
 	require.NoError(t, err)
 
 	// make sure all credential values were set
