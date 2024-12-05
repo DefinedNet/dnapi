@@ -24,7 +24,7 @@ func (k Ed25519PublicKey) Unwrap() interface{} {
 }
 
 func (k Ed25519PublicKey) MarshalPEM() ([]byte, error) {
-	return MarshalEd25519HostPublicKey(k.PublicKey)
+	return MarshalHostEd25519PublicKey(k.PublicKey)
 }
 
 // P256PublicKey is a wrapper around an ECDSA public key that implements the
@@ -38,7 +38,7 @@ func (k P256PublicKey) Unwrap() interface{} {
 }
 
 func (k P256PublicKey) MarshalPEM() ([]byte, error) {
-	return MarshalP256HostPublicKey(k.PublicKey)
+	return MarshalHostP256PublicKey(k.PublicKey)
 }
 
 // Ed25519PrivateKey is a wrapper around an Ed25519 private key that implements
@@ -56,7 +56,7 @@ func (k Ed25519PrivateKey) Unwrap() interface{} {
 }
 
 func (k Ed25519PrivateKey) MarshalPEM() ([]byte, error) {
-	return MarshalEd25519HostPrivateKey(k.PrivateKey)
+	return MarshalHostEd25519PrivateKey(k.PrivateKey)
 }
 
 func (k Ed25519PrivateKey) Public() PublicKey {
@@ -79,7 +79,7 @@ func (k P256PrivateKey) Unwrap() interface{} {
 }
 
 func (k P256PrivateKey) MarshalPEM() ([]byte, error) {
-	return MarshalP256HostPrivateKey(k.PrivateKey)
+	return MarshalHostP256PrivateKey(k.PrivateKey)
 }
 
 func (k P256PrivateKey) Public() PublicKey {

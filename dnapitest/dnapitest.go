@@ -122,7 +122,7 @@ func (s *Server) SetCurve(curve message.NetworkCurve) {
 
 func (s *Server) SetEdPubkey(edPubkeyPEM []byte) error {
 	// hard failure, return
-	edPubkey, rest, err := keys.UnmarshalEd25519HostPublicKey(edPubkeyPEM)
+	edPubkey, rest, err := keys.UnmarshalHostEd25519PublicKey(edPubkeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal ed pubkey: %w", err)
 	}
@@ -138,7 +138,7 @@ func (s *Server) SetEdPubkey(edPubkeyPEM []byte) error {
 
 func (s *Server) SetP256Pubkey(p256PubkeyPEM []byte) error {
 	// hard failure, return
-	pubkey, rest, err := keys.UnmarshalP256HostPublicKey(p256PubkeyPEM)
+	pubkey, rest, err := keys.UnmarshalHostP256PublicKey(p256PubkeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal P256 pubkey: %w", err)
 	}

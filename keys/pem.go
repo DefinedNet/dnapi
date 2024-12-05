@@ -17,7 +17,7 @@ const HostP256PrivateKeyBanner = "DEFINED HOST P256 PRIVATE KEY"
 const NebulaECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
 const NebulaEd25519PublicKeyBanner = "NEBULA ED25519 PUBLIC KEY"
 
-func MarshalEd25519HostPublicKey(k ed25519.PublicKey) ([]byte, error) {
+func MarshalHostEd25519PublicKey(k ed25519.PublicKey) ([]byte, error) {
 	b, err := x509.MarshalPKIXPublicKey(k)
 	if err != nil {
 		return nil, err
@@ -28,7 +28,7 @@ func MarshalEd25519HostPublicKey(k ed25519.PublicKey) ([]byte, error) {
 	}), nil
 }
 
-func MarshalEd25519HostPrivateKey(k ed25519.PrivateKey) ([]byte, error) {
+func MarshalHostEd25519PrivateKey(k ed25519.PrivateKey) ([]byte, error) {
 	b, err := x509.MarshalPKCS8PrivateKey(k)
 	if err != nil {
 		return nil, err
@@ -39,12 +39,7 @@ func MarshalEd25519HostPrivateKey(k ed25519.PrivateKey) ([]byte, error) {
 	}), nil
 }
 
-func MarshalEd25519NebulaPublicKey(k ed25519.PublicKey) ([]byte, error) {
-	return pem.EncodeToMemory(&pem.Block{Type: NebulaEd25519PublicKeyBanner, Bytes: k}), nil
-
-}
-
-func MarshalP256HostPublicKey(k *ecdsa.PublicKey) ([]byte, error) {
+func MarshalHostP256PublicKey(k *ecdsa.PublicKey) ([]byte, error) {
 	b, err := x509.MarshalPKIXPublicKey(k)
 	if err != nil {
 		return nil, err
@@ -55,7 +50,7 @@ func MarshalP256HostPublicKey(k *ecdsa.PublicKey) ([]byte, error) {
 	}), nil
 }
 
-func MarshalP256HostPrivateKey(k *ecdsa.PrivateKey) ([]byte, error) {
+func MarshalHostP256PrivateKey(k *ecdsa.PrivateKey) ([]byte, error) {
 	b, err := x509.MarshalECPrivateKey(k)
 	if err != nil {
 		return nil, err
@@ -66,7 +61,7 @@ func MarshalP256HostPrivateKey(k *ecdsa.PrivateKey) ([]byte, error) {
 	}), nil
 }
 
-func UnmarshalEd25519HostPublicKey(b []byte) (ed25519.PublicKey, []byte, error) {
+func UnmarshalHostEd25519PublicKey(b []byte) (ed25519.PublicKey, []byte, error) {
 	k, r := pem.Decode(b)
 	if k == nil {
 		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
@@ -83,7 +78,7 @@ func UnmarshalEd25519HostPublicKey(b []byte) (ed25519.PublicKey, []byte, error) 
 	return pkey.(ed25519.PublicKey), r, nil
 }
 
-func UnmarshalEd25519HostPrivateKey(b []byte) (ed25519.PrivateKey, []byte, error) {
+func UnmarshalHostEd25519PrivateKey(b []byte) (ed25519.PrivateKey, []byte, error) {
 	k, r := pem.Decode(b)
 	if k == nil {
 		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
@@ -100,7 +95,7 @@ func UnmarshalEd25519HostPrivateKey(b []byte) (ed25519.PrivateKey, []byte, error
 	return pkey.(ed25519.PrivateKey), r, nil
 }
 
-func UnmarshalP256HostPublicKey(b []byte) (*ecdsa.PublicKey, []byte, error) {
+func UnmarshalHostP256PublicKey(b []byte) (*ecdsa.PublicKey, []byte, error) {
 	k, r := pem.Decode(b)
 	if k == nil {
 		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
@@ -117,7 +112,7 @@ func UnmarshalP256HostPublicKey(b []byte) (*ecdsa.PublicKey, []byte, error) {
 	return pkey.(*ecdsa.PublicKey), r, nil
 }
 
-func UnmarshalP256HostPrivateKey(b []byte) (*ecdsa.PrivateKey, []byte, error) {
+func UnmarshalHostP256PrivateKey(b []byte) (*ecdsa.PrivateKey, []byte, error) {
 	k, r := pem.Decode(b)
 	if k == nil {
 		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
