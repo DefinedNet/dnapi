@@ -116,6 +116,10 @@ func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
 	w.Write(res.response(req))
 }
 
+func (s *Server) SetCurve(curve message.NetworkCurve) {
+	s.curve = curve
+}
+
 func (s *Server) SetEdPubkey(edPubkeyPEM []byte) error {
 	// hard failure, return
 	edPubkey, rest, err := keys.UnmarshalEd25519HostPublicKey(edPubkeyPEM)
@@ -351,6 +355,7 @@ func NewServer(expectedUserAgent string) *Server {
 		errors:            []error{},
 		expectedRequests:  []requestResponse{},
 		expectedUserAgent: expectedUserAgent,
+		curve:             message.NetworkCurve25519, // default for legacy tests
 	}
 	ts := httptest.NewServer(http.HandlerFunc(s.handler))
 	s.Server = ts
