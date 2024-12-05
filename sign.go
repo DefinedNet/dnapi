@@ -1,15 +1,15 @@
 package dnapi
 
 import (
-	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"time"
 
+	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
 )
 
-func SignRequestV1(reqType string, value []byte, hostID string, counter uint, privkey ed25519.PrivateKey) ([]byte, error) {
+func SignRequestV1(reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) ([]byte, error) {
 	encMsg, err := json.Marshal(message.RequestWrapper{
 		Type:      reqType,
 		Value:     value,
@@ -20,7 +20,10 @@ func SignRequestV1(reqType string, value []byte, hostID string, counter uint, pr
 	}
 
 	signedMsg := base64.StdEncoding.EncodeToString(encMsg)
-	sig := ed25519.Sign(privkey, []byte(signedMsg))
+	sig, err := privkey.Sign([]byte(signedMsg))
+	if err != nil {
+		return nil, err
+	}
 
 	wrapper := message.RequestV1{
 		Version:   1,

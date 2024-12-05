@@ -3,8 +3,12 @@ package dnapi
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +19,7 @@ import (
 
 	"github.com/DefinedNet/dnapi/dnapitest"
 	"github.com/DefinedNet/dnapi/internal/testutil"
+	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
 	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/cert"
@@ -39,17 +44,19 @@ func TestEnroll(t *testing.T) {
 	hostID := "foobar"
 	orgID := "foobaz"
 	orgName := "foobar's foo org"
+	netID := "qux"
+	netCurve := message.NetworkCurve25519
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
 	require.NoError(t, err)
 
-	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
 		cfg, err := yaml.Marshal(m{
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -65,10 +72,14 @@ func TestEnroll(t *testing.T) {
 				HostID:      hostID,
 				Counter:     counter,
 				Config:      cfg,
-				TrustedKeys: cert.MarshalEd25519PublicKey(ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
 				Organization: message.EnrollResponseDataOrg{
 					ID:   orgID,
 					Name: orgName,
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    netID,
+					Curve: netCurve,
 				},
 			},
 		})
@@ -81,9 +92,12 @@ func TestEnroll(t *testing.T) {
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
+	tk, err := keys.NewTrustedKey(ed25519.PublicKey(ca.Details.PublicKey))
+	require.NoError(t, err)
+
 	assert.Equal(t, hostID, creds.HostID)
 	assert.Equal(t, counter, creds.Counter)
-	assert.Equal(t, []ed25519.PublicKey{ca.Details.PublicKey}, creds.TrustedKeys)
+	assert.Equal(t, []keys.TrustedKey{tk}, creds.TrustedKeys)
 	assert.NotEmpty(t, creds.PrivateKey)
 	assert.NotEmpty(t, pkey)
 
@@ -112,7 +126,7 @@ func TestEnroll(t *testing.T) {
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
-	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
 		return jsonMarshal(message.EnrollResponse{
 			Errors: message.APIErrors{{
 				Code:    "ERR_INVALID_ENROLLMENT_CODE",
@@ -150,12 +164,12 @@ func TestDoUpdate(t *testing.T) {
 	c := NewClient(useragent, ts.URL)
 
 	code := "foobar"
-	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
 		cfg, err := yaml.Marshal(m{
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -171,10 +185,14 @@ func TestDoUpdate(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: cert.MarshalEd25519PublicKey(ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
 				Organization: message.EnrollResponseDataOrg{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurve25519,
 				},
 			},
 		})
@@ -185,7 +203,9 @@ func TestDoUpdate(t *testing.T) {
 	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
-	pubkey := cert.MarshalEd25519PublicKey(creds.PrivateKey.Public().(ed25519.PublicKey))
+	// convert privkey to private key
+	pubkey, err := keys.MarshalHostEd25519PublicKey(creds.PrivateKey.Public().Unwrap().(ed25519.PublicKey))
+	require.NoError(t, err)
 
 	// make sure all credential values were set
 	assert.NotEmpty(t, creds.HostID)
@@ -203,11 +223,12 @@ func TestDoUpdate(t *testing.T) {
 	})
 
 	// Create a new, invalid requesting authentication key
-	_, invalidPrivKey, err := newEdKeypair()
+	nk, err := keys.New()
 	require.NoError(t, err)
-	invalidCreds := Credentials{
+
+	invalidCreds := keys.Credentials{
 		HostID:      creds.HostID,
-		PrivateKey:  invalidPrivKey,
+		PrivateKey:  nk.HostEd25519PrivateKey,
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
@@ -230,7 +251,7 @@ func TestDoUpdate(t *testing.T) {
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
-		_, newPrivkey, err := newEdKeypair()
+		nk, err := keys.New()
 		require.NoError(t, err)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
@@ -238,11 +259,14 @@ func TestDoUpdate(t *testing.T) {
 		err = ts.SetEdPubkey(pubkey)
 		require.NoError(t, err)
 
+		sig, err := nk.HostEd25519PrivateKey.Sign(rawRes)
+		require.NoError(t, err)
+
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
 				Version:   1,
 				Message:   rawRes,
-				Signature: ed25519.Sign(newPrivkey, rawRes),
+				Signature: sig,
 			},
 		})
 	})
@@ -317,26 +341,26 @@ func TestDoUpdate(t *testing.T) {
 
 }
 
-func TestCommandResponse(t *testing.T) {
+func TestDoUpdate_P256(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
-	ca, _ := dnapitest.NebulaCACert()
+	ca, caPrivkey := dnapitest.NebulaCACertP256()
 	caPEM, err := ca.MarshalToPEM()
 	require.NoError(t, err)
 
 	c := NewClient(useragent, ts.URL)
 
 	code := "foobar"
-	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+	ts.ExpectEnrollment(code, message.NetworkCurveP256, func(req message.EnrollRequest) []byte {
 		cfg, err := yaml.Marshal(m{
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "p256Pubkey": req.NebulaPubkeyP256},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -352,10 +376,232 @@ func TestCommandResponse(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: cert.MarshalEd25519PublicKey(ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
 				Organization: message.EnrollResponseDataOrg{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurveP256,
+				},
+			},
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	require.NoError(t, err)
+
+	// convert privkey to private key
+	pubkey, err := keys.MarshalHostP256PublicKey(creds.PrivateKey.Public().Unwrap().(*ecdsa.PublicKey))
+	require.NoError(t, err)
+
+	// make sure all credential values were set
+	assert.NotEmpty(t, creds.HostID)
+	assert.NotEmpty(t, creds.PrivateKey)
+	assert.NotEmpty(t, creds.TrustedKeys)
+	assert.NotEmpty(t, creds.Counter)
+
+	// make sure we got a config back
+	assert.NotEmpty(t, config)
+	assert.NotEmpty(t, pkey)
+
+	// Invalid request signature should return a specific error
+	ts.ExpectRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+		return []byte("")
+	})
+
+	// Create a new, invalid requesting authentication key
+	nk, err := keys.New()
+	require.NoError(t, err)
+	invalidCreds := keys.Credentials{
+		HostID:      creds.HostID,
+		PrivateKey:  nk.HostP256PrivateKey,
+		Counter:     creds.Counter,
+		TrustedKeys: creds.TrustedKeys,
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, err = c.CheckForUpdate(ctx, invalidCreds)
+	assert.Error(t, err)
+	invalidCredsErrorType := InvalidCredentialsError{}
+	assert.ErrorAs(t, err, &invalidCredsErrorType)
+	serverErrs := ts.Errors() // This consumes/resets the server errors
+	require.Len(t, serverErrs, 1)
+
+	// Invalid signature
+	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+		newConfigResponse := message.DoUpdateResponse{
+			Config:  dnapitest.NebulaCfg(caPEM),
+			Counter: 2,
+			Nonce:   dnapitest.GetNonce(r),
+		}
+		rawRes := jsonMarshal(newConfigResponse)
+
+		nk, err := keys.New()
+		require.NoError(t, err)
+
+		// XXX the mock server will update the ed pubkey for us, but this is problematic because
+		// we are rejecting the update. reset the key
+		err = ts.SetP256Pubkey(pubkey)
+		require.NoError(t, err)
+
+		sig, err := nk.HostP256PrivateKey.Sign(rawRes)
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_SIGN_MESSAGE",
+					Message: "failed to sign message",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: sig,
+			},
+		})
+	})
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	cfg, pkey, newCreds, err := c.DoUpdate(ctx, *creds)
+	require.Error(t, err)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+	require.Nil(t, newCreds)
+	require.Nil(t, cfg)
+	require.Nil(t, pkey)
+
+	// Invalid counter
+	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+		newConfigResponse := message.DoUpdateResponse{
+			Config:  dnapitest.NebulaCfg(caPEM),
+			Counter: 0,
+			Nonce:   dnapitest.GetNonce(r),
+		}
+		rawRes := jsonMarshal(newConfigResponse)
+
+		// XXX the mock server will update the host pubkey for us, but this is problematic because
+		// we are rejecting the update. reset the key
+		err := ts.SetP256Pubkey(pubkey)
+		require.NoError(t, err)
+
+		hashed := sha256.Sum256(rawRes)
+		sig, err := ecdsa.SignASN1(rand.Reader, caPrivkey, hashed[:])
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_SIGN_MESSAGE",
+					Message: "failed to sign message",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: sig,
+			},
+		})
+	})
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	cfg, pkey, newCreds, err = c.DoUpdate(ctx, *creds)
+	require.Error(t, err)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+	require.Nil(t, newCreds)
+	require.Nil(t, cfg)
+	require.Nil(t, pkey)
+
+	// This time sign the response with the correct CA key.
+	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+		newConfigResponse := message.DoUpdateResponse{
+			Config:  dnapitest.NebulaCfg(caPEM),
+			Counter: 3,
+			Nonce:   dnapitest.GetNonce(r),
+		}
+		rawRes := jsonMarshal(newConfigResponse)
+		hashed := sha256.Sum256(rawRes)
+		sig, err := ecdsa.SignASN1(rand.Reader, caPrivkey, hashed[:])
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_SIGN_MESSAGE",
+					Message: "failed to sign message",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: sig,
+			},
+		})
+	})
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, _, err = c.DoUpdate(ctx, *creds)
+	require.NoError(t, err)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+}
+
+func TestCommandResponse(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, _ := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalToPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	code := "foobar"
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{
+			// we need to send this or we'll get an error from the api client
+			"pki": m{"ca": string(caPEM)},
+			// here we reflect values back to the client for test purposes
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
+		})
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
+					Message: "failed to marshal test response config",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.EnrollResponse{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				Organization: message.EnrollResponseDataOrg{
+					ID:   "foobaz",
+					Name: "foobar's foo org",
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurve25519,
 				},
 			},
 		})
@@ -422,12 +668,12 @@ func TestStreamCommandResponse(t *testing.T) {
 	c := NewClient(useragent, ts.URL)
 
 	code := "foobar"
-	ts.ExpectEnrollment(code, func(req message.EnrollRequest) []byte {
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
 		cfg, err := yaml.Marshal(m{
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.DHPubkey},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
 		})
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
@@ -443,10 +689,14 @@ func TestStreamCommandResponse(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: cert.MarshalEd25519PublicKey(ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
 				Organization: message.EnrollResponseDataOrg{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
+				},
+				Network: message.EnrollResponseDataNetwork{
+					ID:    "qux",
+					Curve: message.NetworkCurve25519,
 				},
 			},
 		})
@@ -567,4 +817,15 @@ func TestOverrideTimeout(t *testing.T) {
 	defer cancel()
 	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func marshalCAPublicKey(curve cert.Curve, pubkey []byte) []byte {
+	switch curve {
+	case cert.Curve_CURVE25519:
+		return pem.EncodeToMemory(&pem.Block{Type: keys.NebulaEd25519PublicKeyBanner, Bytes: pubkey})
+	case cert.Curve_P256:
+		return pem.EncodeToMemory(&pem.Block{Type: keys.NebulaECDSAP256PublicKeyBanner, Bytes: pubkey})
+	default:
+		panic("unsupported curve")
+	}
 }

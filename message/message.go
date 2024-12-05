@@ -63,9 +63,11 @@ type CheckForUpdateResponse struct {
 
 // DoUpdateRequest is the request sent for a DoUpdate request.
 type DoUpdateRequest struct {
-	EdPubkeyPEM []byte `json:"edPubkeyPEM"`
-	DHPubkeyPEM []byte `json:"dhPubkeyPEM"`
-	Nonce       []byte `json:"nonce"`
+	HostPubkeyEd25519  []byte `json:"edPubkeyPEM"`         // X25519 (used for key exchange)
+	NebulaPubkeyX25519 []byte `json:"dhPubkeyPEM"`         // Ed25519 (used for signing)
+	HostPubkeyP256     []byte `json:"p256HostPubkeyPEM"`   // P256 (used for signing)
+	NebulaPubkeyP256   []byte `json:"p256NebulaPubkeyPEM"` // P256 (used for key exchange)
+	Nonce              []byte `json:"nonce"`
 }
 
 // DoUpdateResponse is the response generated for a DoUpdate request.
@@ -118,10 +120,12 @@ const EnrollEndpoint = "/v2/enroll"
 
 // EnrollRequest is issued to the EnrollEndpoint.
 type EnrollRequest struct {
-	Code      string    `json:"code"`
-	DHPubkey  []byte    `json:"dhPubkey"`
-	EdPubkey  []byte    `json:"edPubkey"`
-	Timestamp time.Time `json:"timestamp"`
+	Code               string    `json:"code"`
+	NebulaPubkeyX25519 []byte    `json:"dhPubkey"`         // X25519 (used for key exchange)
+	HostPubkeyEd25519  []byte    `json:"edPubkey"`         // Ed25519 (used for signing)
+	NebulaPubkeyP256   []byte    `json:"nebulaPubkeyP256"` // P256 (used for key exchange)
+	HostPubkeyP256     []byte    `json:"hostPubkeyP256"`   // P256 (used for signing)
+	Timestamp          time.Time `json:"timestamp"`
 }
 
 // EnrollResponse represents a response from the enrollment endpoint.
@@ -134,17 +138,24 @@ type EnrollResponse struct {
 
 // EnrollResponseData is included in the EnrollResponse.
 type EnrollResponseData struct {
-	Config       []byte                `json:"config"`
-	HostID       string                `json:"hostID"`
-	Counter      uint                  `json:"counter"`
-	TrustedKeys  []byte                `json:"trustedKeys"`
-	Organization EnrollResponseDataOrg `json:"organization"`
+	Config       []byte                    `json:"config"`
+	HostID       string                    `json:"hostID"`
+	Counter      uint                      `json:"counter"`
+	TrustedKeys  []byte                    `json:"trustedKeys"`
+	Organization EnrollResponseDataOrg     `json:"organization"`
+	Network      EnrollResponseDataNetwork `json:"network"`
 }
 
 // EnrollResponseDataOrg is included in EnrollResponseData.
 type EnrollResponseDataOrg struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// EnrollResponseDataNetwork is included in EnrollResponseData.
+type EnrollResponseDataNetwork struct {
+	ID    string       `json:"id"`
+	Curve NetworkCurve `json:"curve"`
 }
 
 // APIError represents a single error returned in an API error response.
@@ -167,4 +178,30 @@ func (errs APIErrors) ToError() error {
 	}
 
 	return errors.New(strings.Join(s, ", "))
+}
+
+// NetworkCurve represents the network curve specified by the API.
+type NetworkCurve string
+
+const (
+	NetworkCurve25519 NetworkCurve = "25519"
+	NetworkCurveP256  NetworkCurve = "P256"
+)
+
+func (nc *NetworkCurve) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+
+	switch s {
+	case "25519":
+		*nc = NetworkCurve25519
+	case "P256":
+		*nc = NetworkCurveP256
+	default:
+		return errors.New("invalid network curve")
+	}
+
+	return nil
 }
