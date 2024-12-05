@@ -169,16 +169,10 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	switch r.Data.Network.Curve {
 	case message.NetworkCurve25519:
 		privkeyPEM = newKeys.NebulaX25519PrivateKeyPEM
-		privkey, err = keys.NewPrivateKey(newKeys.HostEd25519PrivateKey)
-		if err != nil {
-			return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to create new private key: %s", err), ReqID: reqID}
-		}
+		privkey = newKeys.HostEd25519PrivateKey
 	case message.NetworkCurveP256:
 		privkeyPEM = newKeys.NebulaP256PrivateKeyPEM
-		privkey, err = keys.NewPrivateKey(newKeys.HostP256PrivateKey)
-		if err != nil {
-			return nil, nil, nil, nil, &APIError{e: fmt.Errorf("failed to create new private key: %s", err), ReqID: reqID}
-		}
+		privkey = newKeys.HostP256PrivateKey
 	default:
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unsupported curve type: %s", r.Data.Network.Curve), ReqID: reqID}
 	}
@@ -255,18 +249,12 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 	// Set the correct keypair based on the current private key type
 	switch creds.PrivateKey.Unwrap().(type) {
 	case ed25519.PrivateKey:
-		hostPrivkey, err = keys.NewPrivateKey(newKeys.HostEd25519PrivateKey)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create new private key: %s", err)
-		}
+		hostPrivkey = newKeys.HostEd25519PrivateKey
 		nebulaPrivkeyPEM = newKeys.NebulaX25519PrivateKeyPEM
 		msg.HostPubkeyEd25519 = newKeys.HostEd25519PublicKeyPEM
 		msg.NebulaPubkeyX25519 = newKeys.NebulaX25519PublicKeyPEM
 	case *ecdsa.PrivateKey:
-		hostPrivkey, err = keys.NewPrivateKey(newKeys.HostP256PrivateKey)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create new private key: %s", err)
-		}
+		hostPrivkey = newKeys.HostP256PrivateKey
 		nebulaPrivkeyPEM = newKeys.NebulaP256PrivateKeyPEM
 		msg.HostPubkeyP256 = newKeys.HostP256PublicKeyPEM
 		msg.NebulaPubkeyP256 = newKeys.NebulaP256PublicKeyPEM

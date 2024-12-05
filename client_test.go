@@ -225,12 +225,10 @@ func TestDoUpdate(t *testing.T) {
 	// Create a new, invalid requesting authentication key
 	nk, err := keys.New()
 	require.NoError(t, err)
-	pk, err := keys.NewPrivateKey(nk.HostEd25519PrivateKey)
-	require.NoError(t, err)
 
 	invalidCreds := keys.Credentials{
 		HostID:      creds.HostID,
-		PrivateKey:  pk,
+		PrivateKey:  nk.HostEd25519PrivateKey,
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
@@ -261,11 +259,14 @@ func TestDoUpdate(t *testing.T) {
 		err = ts.SetEdPubkey(pubkey)
 		require.NoError(t, err)
 
+		sig, err := nk.HostEd25519PrivateKey.Sign(rawRes)
+		require.NoError(t, err)
+
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
 				Version:   1,
 				Message:   rawRes,
-				Signature: ed25519.Sign(nk.HostEd25519PrivateKey, rawRes),
+				Signature: sig,
 			},
 		})
 	})
@@ -415,11 +416,9 @@ func TestDoUpdate_P256(t *testing.T) {
 	// Create a new, invalid requesting authentication key
 	nk, err := keys.New()
 	require.NoError(t, err)
-	pk, err := keys.NewPrivateKey(nk.HostP256PrivateKey)
-	require.NoError(t, err)
 	invalidCreds := keys.Credentials{
 		HostID:      creds.HostID,
-		PrivateKey:  pk,
+		PrivateKey:  nk.HostP256PrivateKey,
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
@@ -450,8 +449,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		err = ts.SetP256Pubkey(pubkey)
 		require.NoError(t, err)
 
-		hashed := sha256.Sum256(rawRes)
-		sig, err := ecdsa.SignASN1(rand.Reader, nk.HostP256PrivateKey, hashed[:])
+		sig, err := nk.HostP256PrivateKey.Sign(rawRes)
 		if err != nil {
 			return jsonMarshal(message.EnrollResponse{
 				Errors: message.APIErrors{{

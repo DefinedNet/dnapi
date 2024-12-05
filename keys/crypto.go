@@ -81,16 +81,16 @@ func (k P256PrivateKey) MarshalPEM() ([]byte, error) {
 // we will need it to sign requests.
 type Keys struct {
 	// 25519 Curve
-	NebulaX25519PublicKeyPEM  []byte             // ECDH (Nebula)
-	NebulaX25519PrivateKeyPEM []byte             // ECDH (Nebula)
-	HostEd25519PublicKeyPEM   []byte             // EdDSA (DN API)
-	HostEd25519PrivateKey     ed25519.PrivateKey // EdDSA (DN API)
+	NebulaX25519PublicKeyPEM  []byte     // ECDH (Nebula)
+	NebulaX25519PrivateKeyPEM []byte     // ECDH (Nebula)
+	HostEd25519PublicKeyPEM   []byte     // EdDSA (DN API)
+	HostEd25519PrivateKey     PrivateKey // EdDSA (DN API)
 
 	// P256 Curve
-	NebulaP256PublicKeyPEM  []byte            // ECDH (Nebula)
-	NebulaP256PrivateKeyPEM []byte            // ECDH (Nebula)
-	HostP256PublicKeyPEM    []byte            // ECDSA (DN API)
-	HostP256PrivateKey      *ecdsa.PrivateKey // ECDSA (DN API)
+	NebulaP256PublicKeyPEM  []byte     // ECDH (Nebula)
+	NebulaP256PrivateKeyPEM []byte     // ECDH (Nebula)
+	HostP256PublicKeyPEM    []byte     // ECDSA (DN API)
+	HostP256PrivateKey      PrivateKey // ECDSA (DN API)
 }
 
 func New() (*Keys, error) {
@@ -114,15 +114,25 @@ func New() (*Keys, error) {
 		return nil, err
 	}
 
+	ed25519PrivateKeyI, err := NewPrivateKey(ed25519PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	ecdsaP256PrivateKeyI, err := NewPrivateKey(ecdsaP256PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Keys{
 		NebulaX25519PublicKeyPEM:  x25519PublicKeyPEM,
 		NebulaX25519PrivateKeyPEM: x25519PrivateKeyPEM,
 		HostEd25519PublicKeyPEM:   ed25519PublicKeyPEM,
-		HostEd25519PrivateKey:     ed25519PrivateKey,
+		HostEd25519PrivateKey:     ed25519PrivateKeyI,
 		NebulaP256PublicKeyPEM:    ecdhP256PublicKeyPEM,
 		NebulaP256PrivateKeyPEM:   ecdhP256PrivateKeyPEM,
 		HostP256PublicKeyPEM:      ecdsaP256PublicKeyPEM,
-		HostP256PrivateKey:        ecdsaP256PrivateKey,
+		HostP256PrivateKey:        ecdsaP256PrivateKeyI,
 	}, nil
 }
 
