@@ -129,6 +129,34 @@ func UnmarshalHostP256PrivateKey(b []byte) (*ecdsa.PrivateKey, []byte, error) {
 	return pkey, r, nil
 }
 
+func UnmarshalHostPrivateKey(b []byte) (PrivateKey, []byte, error) {
+	k, r := pem.Decode(b)
+	if k == nil {
+		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
+	}
+
+	switch k.Type {
+	case HostP256PrivateKeyBanner:
+		pkey, r, err := UnmarshalHostP256PrivateKey(b)
+		if err != nil {
+			return nil, r, err
+		}
+		pk, err := NewPrivateKey(pkey)
+		return pk, r, err
+
+	case HostEd25519PrivateKeyBanner:
+		pkey, r, err := UnmarshalHostEd25519PrivateKey(b)
+		if err != nil {
+			return nil, r, err
+		}
+		pk, err := NewPrivateKey(pkey)
+		return pk, r, err
+
+	default:
+		return nil, r, fmt.Errorf("input did not contain a valid private key banner")
+	}
+}
+
 func UnmarshalTrustedKey(b []byte) (TrustedKey, []byte, error) {
 	k, r := pem.Decode(b)
 	if k == nil {
