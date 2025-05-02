@@ -123,6 +123,8 @@ func TestEnroll(t *testing.T) {
 	// test meta
 	assert.Equal(t, orgID, meta.OrganizationID)
 	assert.Equal(t, orgName, meta.OrganizationName)
+	assert.Equal(t, netID, meta.Network.ID)
+	assert.Equal(t, netCurve, meta.Network.Curve)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"

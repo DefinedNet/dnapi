@@ -88,6 +88,7 @@ func (e InvalidCredentialsError) Error() string {
 type EnrollMeta struct {
 	OrganizationID   string
 	OrganizationName string
+	Network          message.EnrollResponseDataNetwork
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -171,6 +172,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	meta := &EnrollMeta{
 		OrganizationID:   r.Data.Organization.ID,
 		OrganizationName: r.Data.Organization.Name,
+		Network:          r.Data.Network,
 	}
 
 	// Determine the private keys to save based on the network curve type
