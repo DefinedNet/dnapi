@@ -17,16 +17,17 @@ jobs:
     name: Build and test on Ubuntu
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go 1.22
-        uses: actions/setup-go@v2
+      - name: Check out code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
+          check-latest: true
         id: go
 
-      - name: Check out code
-        uses: actions/checkout@v3
-
-      - uses: actions/cache@v2
+      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go1.22-${{ hashFiles('**/go.sum') }}
@@ -40,7 +41,7 @@ jobs:
 
       - name: Report failures to Slack
         if: ${{ always() && github.ref == 'refs/heads/main' }}
-        uses: ravsamhq/notify-slack-action@v2
+        uses: ravsamhq/notify-slack-action@be814b201e233b2dc673608aa46e5447c8ab13f2 # v2
         with:
           notification_title: "It seems that my sole purpose in this dismal existence is to spread the gloomy news of broken code and shattered dreams."
           footer: "I think you ought to know I'm feeling very depressed."
