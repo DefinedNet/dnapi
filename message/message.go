@@ -167,9 +167,9 @@ type APIError struct {
 
 type APIErrors []APIError
 
-func (errs APIErrors) ToError() error {
+func (errs APIErrors) Error() string {
 	if len(errs) == 0 {
-		return nil
+		return ""
 	}
 
 	s := make([]string, len(errs))
@@ -177,7 +177,7 @@ func (errs APIErrors) ToError() error {
 		s[i] = errs[i].Message
 	}
 
-	return errors.New(strings.Join(s, ", "))
+	return strings.Join(s, ", ")
 }
 
 // NetworkCurve represents the network curve specified by the API.
