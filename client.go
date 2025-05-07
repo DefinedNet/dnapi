@@ -164,8 +164,8 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	}
 
 	// Check for any errors returned by the API
-	if err := r.Errors; err != nil {
-		return nil, nil, nil, nil, err
+	if err := r.Errors.ToError(); err != nil {
+		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unexpected error during enrollment: %v", err), ReqID: reqID}
 	}
 
 	meta := &EnrollMeta{
@@ -412,7 +412,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			if err := json.Unmarshal(respBody, &errors); err != nil {
 				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
 			} else {
-				sc.err.Store(errors.Errors)
+				sc.err.Store(errors.Errors.ToError())
 			}
 		}
 	}()
@@ -459,7 +459,7 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		if err := json.Unmarshal(respBody, &errors); err != nil {
 			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
 		}
-		return nil, errors.Errors
+		return nil, errors.Errors.ToError()
 	}
 }
 
