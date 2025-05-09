@@ -79,8 +79,8 @@ func (e *APIError) Unwrap() error {
 	return e.e
 }
 
-var InvalidCredentialsError = fmt.Errorf("invalid credentials")
-var InvalidCodeError = fmt.Errorf("invalid enrollment code")
+var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
+var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
 
 type EnrollMeta struct {
 	OrganizationID   string
@@ -163,7 +163,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	// Check for *only* an "invalid code" error returned by the API
 	if len(r.Errors) == 1 {
 		if err := r.Errors[0]; err.Path == "code" && err.Code == "ERR_INVALID_VALUE" {
-			return nil, nil, nil, nil, &APIError{e: InvalidCodeError, ReqID: reqID}
+			return nil, nil, nil, nil, &APIError{e: ErrInvalidCode, ReqID: reqID}
 		}
 	}
 
@@ -408,7 +408,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 		case http.StatusOK:
 			sc.respBytes = respBody
 		case http.StatusUnauthorized:
-			sc.err.Store(InvalidCredentialsError)
+			sc.err.Store(ErrInvalidCredentials)
 		default:
 			var errors struct {
 				Errors message.APIErrors
@@ -455,7 +455,7 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	case http.StatusOK:
 		return respBody, nil
 	case http.StatusUnauthorized:
-		return nil, InvalidCredentialsError
+		return nil, ErrInvalidCredentials
 	default:
 		var errors struct {
 			Errors message.APIErrors

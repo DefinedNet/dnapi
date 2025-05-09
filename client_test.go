@@ -237,7 +237,7 @@ func TestDoUpdate(t *testing.T) {
 	defer cancel()
 	_, err = c.CheckForUpdate(ctx, invalidCreds)
 	assert.Error(t, err)
-	assert.ErrorAs(t, err, &InvalidCredentialsError)
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 	serverErrs := ts.Errors() // This consumes/resets the server errors
 	require.Len(t, serverErrs, 1)
 
@@ -426,7 +426,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	defer cancel()
 	_, err = c.CheckForUpdate(ctx, invalidCreds)
 	assert.Error(t, err)
-	assert.ErrorAs(t, err, &InvalidCredentialsError)
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 	serverErrs := ts.Errors() // This consumes/resets the server errors
 	require.Len(t, serverErrs, 1)
 
