@@ -72,10 +72,13 @@ type DoUpdateRequest struct {
 
 // DoUpdateResponse is the response generated for a DoUpdate request.
 type DoUpdateResponse struct {
-	Config      []byte `json:"config"`
-	Counter     uint   `json:"counter"`
-	Nonce       []byte `json:"nonce"`
-	TrustedKeys []byte `json:"trustedKeys"`
+	Config       []byte              `json:"config"`
+	Counter      uint                `json:"counter"`
+	Nonce        []byte              `json:"nonce"`
+	TrustedKeys  []byte              `json:"trustedKeys"`
+	Organization HostOrgMetadata     `json:"organization"`
+	Network      HostNetworkMetadata `json:"network"`
+	Host         HostHostMetadata    `json:"host"`
 }
 
 // LongPollWaitResponseWrapper contains a response to LongPollWait inside "data."
@@ -138,24 +141,34 @@ type EnrollResponse struct {
 
 // EnrollResponseData is included in the EnrollResponse.
 type EnrollResponseData struct {
-	Config       []byte                    `json:"config"`
-	HostID       string                    `json:"hostID"`
-	Counter      uint                      `json:"counter"`
-	TrustedKeys  []byte                    `json:"trustedKeys"`
-	Organization EnrollResponseDataOrg     `json:"organization"`
-	Network      EnrollResponseDataNetwork `json:"network"`
+	Config       []byte              `json:"config"`
+	HostID       string              `json:"hostID"`
+	Counter      uint                `json:"counter"`
+	TrustedKeys  []byte              `json:"trustedKeys"`
+	Organization HostOrgMetadata     `json:"organization"`
+	Network      HostNetworkMetadata `json:"network"`
+	Host         HostHostMetadata    `json:"host"`
 }
 
-// EnrollResponseDataOrg is included in EnrollResponseData.
-type EnrollResponseDataOrg struct {
+// HostOrgMetadata is included in EnrollResponseData.
+type HostOrgMetadata struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// EnrollResponseDataNetwork is included in EnrollResponseData.
-type EnrollResponseDataNetwork struct {
+// HostNetworkMetadata is included in EnrollResponseData.
+type HostNetworkMetadata struct {
 	ID    string       `json:"id"`
+	Name  string       `json:"name"`
 	Curve NetworkCurve `json:"curve"`
+	CIDR  string       `json:"string"`
+}
+
+// HostHostMetadata is included in EnrollResponseData.
+type HostHostMetadata struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IPAddress string `json:"ipAddress"`
 }
 
 // APIError represents a single error returned in an API error response.

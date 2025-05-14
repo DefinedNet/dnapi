@@ -39,8 +39,8 @@ func main() {
 	fmt.Printf(
 		"Host ID: %s (Org: %s, ID: %s), Counter: %d, Config:\n\n%s\n",
 		creds.HostID,
-		meta.OrganizationName,
-		meta.OrganizationID,
+		meta.Org.Name,
+		meta.Org.ID,
 		creds.Counter,
 		config,
 	)
@@ -61,7 +61,7 @@ func main() {
 			// be careful not to blow away creds in case err != nil
 			// another option is to pass credentials by reference and let DoUpdate modify the struct if successful but
 			// this makes it less obvious to the caller that they need to save the new credentials to disk
-			config, pkey, newCreds, err := c.DoUpdate(context.Background(), *creds)
+			config, pkey, newCreds, meta, err := c.DoUpdate(context.Background(), *creds)
 			if err != nil {
 				logger.WithError(err).Error("Failed to perform update")
 				continue
@@ -74,7 +74,7 @@ func main() {
 
 			creds = newCreds
 
-			fmt.Printf("Counter: %d, config:\n\n%s\n", creds.Counter, config)
+			fmt.Printf("Counter: %d, config:\n\n%s\nmeta:\n%+v\n", creds.Counter, config, meta)
 
 			// XXX Now would be a good time to save both the new config and credentials to disk and reload Nebula.
 		}
