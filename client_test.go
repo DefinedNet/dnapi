@@ -41,11 +41,15 @@ func TestEnroll(t *testing.T) {
 
 	// Happy path enrollment
 	code := "abcdef"
-	hostID := "foobar"
 	orgID := "foobaz"
 	orgName := "foobar's foo org"
 	netID := "qux"
+	netName := "the best network"
 	netCurve := message.NetworkCurve25519
+	netCIDR := "192.168.100.0/24"
+	hostID := "foobar"
+	hostName := "foo host"
+	hostIP := "192.168.100.1"
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
@@ -73,13 +77,20 @@ func TestEnroll(t *testing.T) {
 				Counter:     counter,
 				Config:      cfg,
 				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
-				Organization: message.EnrollResponseDataOrg{
+				Organization: message.HostOrgMetadata{
 					ID:   orgID,
 					Name: orgName,
 				},
-				Network: message.EnrollResponseDataNetwork{
+				Network: message.HostNetworkMetadata{
 					ID:    netID,
+					Name:  netName,
 					Curve: netCurve,
+					CIDR:  netCIDR,
+				},
+				Host: message.HostHostMetadata{
+					ID:        hostID,
+					Name:      hostName,
+					IPAddress: hostIP,
 				},
 			},
 		})
@@ -121,8 +132,13 @@ func TestEnroll(t *testing.T) {
 	assert.Empty(t, y.PKI.Key)
 
 	// test meta
-	assert.Equal(t, orgID, meta.OrganizationID)
-	assert.Equal(t, orgName, meta.OrganizationName)
+	assert.Equal(t, orgID, meta.Org.ID)
+	assert.Equal(t, orgName, meta.Org.Name)
+	assert.Equal(t, netID, meta.Network.ID)
+	assert.Equal(t, netName, meta.Network.Name)
+	assert.Equal(t, hostID, meta.Host.ID)
+	assert.Equal(t, hostName, meta.Host.Name)
+	assert.Equal(t, hostIP, meta.Host.IPAddress)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
@@ -186,13 +202,20 @@ func TestDoUpdate(t *testing.T) {
 				Counter:     1,
 				Config:      cfg,
 				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
-				Organization: message.EnrollResponseDataOrg{
+				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
 				},
-				Network: message.EnrollResponseDataNetwork{
+				Network: message.HostNetworkMetadata{
 					ID:    "qux",
+					Name:  "the best network",
 					Curve: message.NetworkCurve25519,
+					CIDR:  "192.168.100.0/24",
+				},
+				Host: message.HostHostMetadata{
+					ID:        "quux",
+					Name:      "foo host",
+					IPAddress: "192.168.100.2",
 				},
 			},
 		})
@@ -244,9 +267,25 @@ func TestDoUpdate(t *testing.T) {
 	// Invalid signature
 	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
-			Config:  dnapitest.NebulaCfg(caPEM),
-			Counter: 2,
-			Nonce:   dnapitest.GetNonce(r),
+			Config:      dnapitest.NebulaCfg(caPEM),
+			Counter:     2,
+			Nonce:       dnapitest.GetNonce(r),
+			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			Organization: message.HostOrgMetadata{
+				ID:   "foobaz",
+				Name: "foobar's foo org",
+			},
+			Network: message.HostNetworkMetadata{
+				ID:    "qux",
+				Name:  "the best network",
+				Curve: message.NetworkCurve25519,
+				CIDR:  "192.168.100.0/24",
+			},
+			Host: message.HostHostMetadata{
+				ID:        "quux",
+				Name:      "foo host",
+				IPAddress: "192.168.100.2",
+			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
@@ -272,7 +311,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, err := c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -283,9 +322,25 @@ func TestDoUpdate(t *testing.T) {
 	// Invalid counter
 	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
-			Config:  dnapitest.NebulaCfg(caPEM),
-			Counter: 0,
-			Nonce:   dnapitest.GetNonce(r),
+			Config:      dnapitest.NebulaCfg(caPEM),
+			Counter:     0,
+			Nonce:       dnapitest.GetNonce(r),
+			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			Organization: message.HostOrgMetadata{
+				ID:   "foobaz",
+				Name: "foobar's foo org",
+			},
+			Network: message.HostNetworkMetadata{
+				ID:    "qux",
+				Name:  "the best network",
+				Curve: message.NetworkCurve25519,
+				CIDR:  "192.168.100.0/24",
+			},
+			Host: message.HostHostMetadata{
+				ID:        "quux",
+				Name:      "foo host",
+				IPAddress: "192.168.100.2",
+			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
@@ -305,7 +360,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, err = c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err = c.DoUpdate(ctx, *creds)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -313,12 +368,38 @@ func TestDoUpdate(t *testing.T) {
 	require.Nil(t, cfg)
 	require.Nil(t, pkey)
 
+	orgID := "foobaz"
+	orgName := "foobar's foo org"
+	netID := "qux"
+	netName := "the best network"
+	netCurve := message.NetworkCurve25519
+	netCIDR := "192.168.100.0/24"
+	hostID := "foobar"
+	hostName := "foo host"
+	hostIP := "192.168.100.1"
+
 	// This time sign the response with the correct CA key.
 	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
-			Config:  dnapitest.NebulaCfg(caPEM),
-			Counter: 3,
-			Nonce:   dnapitest.GetNonce(r),
+			Config:      dnapitest.NebulaCfg(caPEM),
+			Counter:     3,
+			Nonce:       dnapitest.GetNonce(r),
+			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			Organization: message.HostOrgMetadata{
+				ID:   orgID,
+				Name: orgName,
+			},
+			Network: message.HostNetworkMetadata{
+				ID:    netID,
+				Name:  netName,
+				Curve: netCurve,
+				CIDR:  netCIDR,
+			},
+			Host: message.HostHostMetadata{
+				ID:        hostID,
+				Name:      hostName,
+				IPAddress: hostIP,
+			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
@@ -333,10 +414,19 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, err = c.DoUpdate(ctx, *creds)
+	_, _, _, meta, err := c.DoUpdate(ctx, *creds)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	// test meta
+	assert.Equal(t, orgID, meta.Org.ID)
+	assert.Equal(t, orgName, meta.Org.Name)
+	assert.Equal(t, netID, meta.Network.ID)
+	assert.Equal(t, netName, meta.Network.Name)
+	assert.Equal(t, hostID, meta.Host.ID)
+	assert.Equal(t, hostName, meta.Host.Name)
+	assert.Equal(t, hostIP, meta.Host.IPAddress)
 
 }
 
@@ -376,13 +466,20 @@ func TestDoUpdate_P256(t *testing.T) {
 				Counter:     1,
 				Config:      cfg,
 				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
-				Organization: message.EnrollResponseDataOrg{
+				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
 				},
-				Network: message.EnrollResponseDataNetwork{
+				Network: message.HostNetworkMetadata{
 					ID:    "qux",
+					Name:  "the best network",
 					Curve: message.NetworkCurveP256,
+					CIDR:  "192.168.100.0/24",
+				},
+				Host: message.HostHostMetadata{
+					ID:        "quux",
+					Name:      "foo host",
+					IPAddress: "192.168.100.2",
 				},
 			},
 		})
@@ -468,7 +565,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, err := c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -512,7 +609,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, err = c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err = c.DoUpdate(ctx, *creds)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -523,9 +620,25 @@ func TestDoUpdate_P256(t *testing.T) {
 	// This time sign the response with the correct CA key.
 	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
-			Config:  dnapitest.NebulaCfg(caPEM),
-			Counter: 3,
-			Nonce:   dnapitest.GetNonce(r),
+			Config:      dnapitest.NebulaCfg(caPEM),
+			Counter:     3,
+			Nonce:       dnapitest.GetNonce(r),
+			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			Organization: message.HostOrgMetadata{
+				ID:   "foobaz",
+				Name: "foobar's foo org",
+			},
+			Network: message.HostNetworkMetadata{
+				ID:    "qux",
+				Name:  "the best network",
+				Curve: message.NetworkCurve25519,
+				CIDR:  "192.168.100.0/24",
+			},
+			Host: message.HostHostMetadata{
+				ID:        "quux",
+				Name:      "foo host",
+				IPAddress: "192.168.100.2",
+			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 		hashed := sha256.Sum256(rawRes)
@@ -550,7 +663,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, err = c.DoUpdate(ctx, *creds)
+	_, _, _, _, err = c.DoUpdate(ctx, *creds)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -593,13 +706,20 @@ func TestCommandResponse(t *testing.T) {
 				Counter:     1,
 				Config:      cfg,
 				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
-				Organization: message.EnrollResponseDataOrg{
+				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
 				},
-				Network: message.EnrollResponseDataNetwork{
+				Network: message.HostNetworkMetadata{
 					ID:    "qux",
+					Name:  "the best network",
 					Curve: message.NetworkCurve25519,
+					CIDR:  "192.168.100.0/24",
+				},
+				Host: message.HostHostMetadata{
+					ID:        "quux",
+					Name:      "foo host",
+					IPAddress: "192.168.100.2",
 				},
 			},
 		})
@@ -688,13 +808,20 @@ func TestStreamCommandResponse(t *testing.T) {
 				Counter:     1,
 				Config:      cfg,
 				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
-				Organization: message.EnrollResponseDataOrg{
+				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
 				},
-				Network: message.EnrollResponseDataNetwork{
+				Network: message.HostNetworkMetadata{
 					ID:    "qux",
+					Name:  "the best network",
 					Curve: message.NetworkCurve25519,
+					CIDR:  "192.168.100.0/24",
+				},
+				Host: message.HostHostMetadata{
+					ID:        "quux",
+					Name:      "foo host",
+					IPAddress: "192.168.100.2",
 				},
 			},
 		})
