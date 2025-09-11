@@ -150,18 +150,18 @@ func newP256Keypair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
 	return privkey.Public().(*ecdsa.PublicKey), privkey, nil
 }
 
-// newNebulaX25519KeypairPEM returns a new Nebula keypair (X25519) in PEM format.
+// newNebulaX25519KeypairPEM returns a new Nebula key-agreement keypair (ED25519) in PEM format.
 func newNebulaX25519KeypairPEM() ([]byte, []byte, error) {
 	pubkey, privkey, err := newX25519Keypair()
 	if err != nil {
 		return nil, nil, err
 	}
-	pubkey, privkey = cert.MarshalX25519PublicKey(pubkey), cert.MarshalX25519PrivateKey(privkey)
+	pubkey, privkey = cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubkey), cert.MarshalPrivateKeyToPEM(cert.Curve_P256, privkey)
 
 	return pubkey, privkey, nil
 }
 
-// newNebulaP256KeypairPEM returns a new Nebula keypair (P256) in PEM format.
+// newNebulaP256KeypairPEM returns a new Nebula key-agreement keypair (P256) in PEM format.
 func newNebulaP256KeypairPEM() ([]byte, []byte, error) {
 	rawPrivkey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -173,8 +173,8 @@ func newNebulaP256KeypairPEM() ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	pubkey := cert.MarshalPublicKey(cert.Curve_P256, ecdhPrivkey.PublicKey().Bytes())
-	privkey := cert.MarshalPrivateKey(cert.Curve_P256, ecdhPrivkey.Bytes())
+	pubkey := cert.MarshalPublicKeyToPEM(cert.Curve_P256, ecdhPrivkey.PublicKey().Bytes())
+	privkey := cert.MarshalPrivateKeyToPEM(cert.Curve_P256, ecdhPrivkey.Bytes())
 
 	return pubkey, privkey, nil
 }

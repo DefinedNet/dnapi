@@ -54,7 +54,7 @@ func TestEnroll(t *testing.T) {
 	oidcExpiresAt := time.Now()
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
-	caPEM, err := ca.MarshalToPEM()
+	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
 	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
@@ -78,7 +78,7 @@ func TestEnroll(t *testing.T) {
 				HostID:      hostID,
 				Counter:     counter,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 				Organization: message.HostOrgMetadata{
 					ID:   orgID,
 					Name: orgName,
@@ -109,7 +109,7 @@ func TestEnroll(t *testing.T) {
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
-	tk, err := keys.NewTrustedKey(ed25519.PublicKey(ca.Details.PublicKey))
+	tk, err := keys.NewTrustedKey(ed25519.PublicKey(ca.PublicKey()))
 	require.NoError(t, err)
 
 	assert.Equal(t, hostID, creds.HostID)
@@ -129,7 +129,7 @@ func TestEnroll(t *testing.T) {
 	}
 	err = yaml.Unmarshal(cfg, &y)
 	require.NoError(t, err)
-	_, rest, err := cert.UnmarshalX25519PublicKey(y.Test.DHPubkey)
+	_, rest, _, err := cert.UnmarshalPublicKeyFromPEM(y.Test.DHPubkey)
 	assert.NoError(t, err)
 	assert.Len(t, rest, 0)
 	assert.Equal(t, code, y.Test.Code)
@@ -182,7 +182,7 @@ func TestDoUpdate(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 
 	ca, caPrivkey := dnapitest.NebulaCACert()
-	caPEM, err := ca.MarshalToPEM()
+	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
 	c := NewClient(useragent, ts.URL)
@@ -209,7 +209,7 @@ func TestDoUpdate(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -278,7 +278,7 @@ func TestDoUpdate(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     2,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 			Organization: message.HostOrgMetadata{
 				ID:   "foobaz",
 				Name: "foobar's foo org",
@@ -333,7 +333,7 @@ func TestDoUpdate(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     0,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 			Organization: message.HostOrgMetadata{
 				ID:   "foobaz",
 				Name: "foobar's foo org",
@@ -393,7 +393,7 @@ func TestDoUpdate(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 			Organization: message.HostOrgMetadata{
 				ID:   orgID,
 				Name: orgName,
@@ -453,7 +453,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 
 	ca, caPrivkey := dnapitest.NebulaCACertP256()
-	caPEM, err := ca.MarshalToPEM()
+	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
 	c := NewClient(useragent, ts.URL)
@@ -480,7 +480,7 @@ func TestDoUpdate_P256(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -638,7 +638,7 @@ func TestDoUpdate_P256(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 			Organization: message.HostOrgMetadata{
 				ID:   "foobaz",
 				Name: "foobar's foo org",
@@ -693,7 +693,7 @@ func TestCommandResponse(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 
 	ca, _ := dnapitest.NebulaCACert()
-	caPEM, err := ca.MarshalToPEM()
+	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
 	c := NewClient(useragent, ts.URL)
@@ -720,7 +720,7 @@ func TestCommandResponse(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -798,7 +798,7 @@ func TestStreamCommandResponse(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 
 	ca, _ := dnapitest.NebulaCACert()
-	caPEM, err := ca.MarshalToPEM()
+	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
 	c := NewClient(useragent, ts.URL)
@@ -825,7 +825,7 @@ func TestStreamCommandResponse(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -924,7 +924,7 @@ func TestReauthenticate(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 
 	ca, caPrivkey := dnapitest.NebulaCACert()
-	caPEM, err := ca.MarshalToPEM()
+	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
 	c := NewClient(useragent, ts.URL)
@@ -951,7 +951,7 @@ func TestReauthenticate(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",

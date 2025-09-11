@@ -168,9 +168,11 @@ func UnmarshalTrustedKey(b []byte) (TrustedKey, []byte, error) {
 		if len(k.Bytes) != 65 {
 			return nil, r, fmt.Errorf("key was not 65 bytes, is invalid P256 public key")
 		}
-
-		x, y := elliptic.Unmarshal(elliptic.P256(), k.Bytes)
-		return P256TrustedKey{&ecdsa.PublicKey{X: x, Y: y, Curve: elliptic.P256()}}, r, nil
+		pk, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), k.Bytes)
+		if err != nil {
+			return nil, r, fmt.Errorf("failed to parse public key: %s", err)
+		}
+		return P256TrustedKey{pk}, r, nil
 	case NebulaEd25519PublicKeyBanner:
 		if len(k.Bytes) != ed25519.PublicKeySize {
 			return nil, r, fmt.Errorf("key was not 32 bytes, is invalid ed25519 public key")
