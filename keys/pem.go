@@ -14,8 +14,10 @@ const HostEd25519PrivateKeyBanner = "DEFINED HOST ED25519 PRIVATE KEY"
 const HostP256PublicKeyBanner = "DEFINED HOST P256 PUBLIC KEY"
 const HostP256PrivateKeyBanner = "DEFINED HOST P256 PRIVATE KEY"
 
+const NebulaP256PublicKeyBanner = "NEBULA P256 PUBLIC KEY"
 const NebulaECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
 const NebulaEd25519PublicKeyBanner = "NEBULA ED25519 PUBLIC KEY"
+const NebulaX25519PublicKeyBanner = "NEBULA X25519 PUBLIC KEY"
 
 func MarshalHostEd25519PublicKey(k ed25519.PublicKey) ([]byte, error) {
 	b, err := x509.MarshalPKIXPublicKey(k)
@@ -164,14 +166,14 @@ func UnmarshalTrustedKey(b []byte) (TrustedKey, []byte, error) {
 	}
 
 	switch k.Type {
-	case NebulaECDSAP256PublicKeyBanner:
+	case NebulaECDSAP256PublicKeyBanner, NebulaP256PublicKeyBanner:
 		if len(k.Bytes) != 65 {
 			return nil, r, fmt.Errorf("key was not 65 bytes, is invalid P256 public key")
 		}
 
 		x, y := elliptic.Unmarshal(elliptic.P256(), k.Bytes)
 		return P256TrustedKey{&ecdsa.PublicKey{X: x, Y: y, Curve: elliptic.P256()}}, r, nil
-	case NebulaEd25519PublicKeyBanner:
+	case NebulaEd25519PublicKeyBanner, NebulaX25519PublicKeyBanner:
 		if len(k.Bytes) != ed25519.PublicKeySize {
 			return nil, r, fmt.Errorf("key was not 32 bytes, is invalid ed25519 public key")
 		}
