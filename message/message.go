@@ -218,3 +218,17 @@ func (nc *NetworkCurve) UnmarshalJSON(b []byte) error {
 
 	return nil
 }
+
+const PreAuthEndpoint = "/v1/enduser-auth/preauth"
+
+type PreAuthResponse struct {
+	PollToken string `json:"pollToken"`
+}
+
+const EnduserAuthPoll = "/v1/enduser-auth/poll"
+
+type EnduserAuthPollResponse struct {
+	Status         string `json:"status"`
+	LoginUrl       string `json:"loginUrl"`
+	EnrollmentCode string `json:"enrollmentCode"`
+}

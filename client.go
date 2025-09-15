@@ -467,6 +467,28 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	return sc, nil
 }
 
+func (c *Client) handleBody(resp *http.Response) ([]byte, error) {
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the response body: %s", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return respBody, nil
+	case http.StatusUnauthorized:
+		return nil, ErrInvalidCredentials
+	default:
+		var errors struct {
+			Errors message.APIErrors
+		}
+		if err := json.Unmarshal(respBody, &errors); err != nil {
+			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
+		}
+		return nil, errors.Errors.ToError()
+	}
+}
+
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
 func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) ([]byte, error) {
@@ -489,25 +511,7 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the response body: %s", err)
-	}
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return respBody, nil
-	case http.StatusUnauthorized:
-		return nil, ErrInvalidCredentials
-	default:
-		var errors struct {
-			Errors message.APIErrors
-		}
-		if err := json.Unmarshal(respBody, &errors); err != nil {
-			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
-		}
-		return nil, errors.Errors.ToError()
-	}
+	return c.handleBody(resp)
 }
 
 // StreamController is used for interacting with streaming requests to the API.
@@ -580,4 +584,81 @@ func nonce() []byte {
 		panic(err)
 	}
 	return nonce
+}
+
+func (c *Client) GetOidcPollCode(ctx context.Context, logger logrus.FieldLogger) (string, error) {
+	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making GetOidcPollCode request to API")
+
+	enrollURL, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", enrollURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// Log the request ID returned from the server
+	reqID := resp.Header.Get("X-Request-ID")
+	l := logger.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "reqID": reqID})
+	b, err := c.handleBody(resp)
+	if err != nil {
+		l.Error(err) //todo I don't like erroring and also logging?
+		return "", err
+	}
+
+	// Decode the response
+	r := message.PreAuthResponse{}
+	if err = json.Unmarshal(b, &r); err != nil {
+		return "", &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+	}
+
+	return r.PollToken, nil
+}
+
+func (c *Client) DoOidcPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EnduserAuthPollResponse, error) {
+	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making DoOidcPoll request to API")
+
+	enrollURL, err := url.JoinPath(c.dnServer, message.EnduserAuthPoll)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", enrollURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Add("token", pollCode)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Log the request ID returned from the server
+	reqID := resp.Header.Get("X-Request-ID")
+	l := logger.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "reqID": reqID})
+	b, err := c.handleBody(resp)
+	if err != nil {
+		l.Error(err) //todo I don't like erroring and also logging?
+		return nil, err
+	}
+
+	// Decode the response
+	r := message.EnduserAuthPollResponse{}
+	if err = json.Unmarshal(b, &r); err != nil {
+		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+	}
+
+	return &r, nil
 }
