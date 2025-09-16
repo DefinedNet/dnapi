@@ -954,3 +954,73 @@ func marshalCAPublicKey(curve cert.Curve, pubkey []byte) []byte {
 		panic("unsupported curve")
 	}
 }
+
+func TestGetOidcPollCode(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
+	t.Cleanup(func() { ts.Close() })
+	const expectedCode = "123456"
+	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusOK, func(req message.RequestWrapper) []byte {
+		return jsonMarshal(message.PreAuthResponse{PollToken: expectedCode})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	code, err := client.GetOidcPollCode(ctx, testutil.NewTestLogger())
+	require.NoError(t, err)
+	assert.Equal(t, expectedCode, code)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	//unhappy path
+	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusBadGateway, func(req message.RequestWrapper) []byte {
+		return jsonMarshal(message.PreAuthResponse{PollToken: expectedCode})
+	})
+	code, err = client.GetOidcPollCode(ctx, testutil.NewTestLogger())
+	require.Error(t, err)
+	assert.Equal(t, "", code)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}
+
+func TestDoOidcPoll(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
+	t.Cleanup(func() { ts.Close() })
+	const expectedCode = "123456"
+	ts.ExpectRequest(message.EnduserAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
+		return jsonMarshal(message.EnduserAuthPollResponse{
+			Status:         "something",
+			LoginUrl:       "https://login.example.com",
+			EnrollmentCode: "",
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	resp, err := client.DoOidcPoll(ctx, testutil.NewTestLogger(), expectedCode)
+	require.NoError(t, err)
+	assert.Equal(t, resp.Status, "something")
+	assert.Equal(t, resp.LoginUrl, "https://login.example.com")
+	assert.Equal(t, resp.EnrollmentCode, "")
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	//unhappy path
+	ts.ExpectRequest(message.EnduserAuthPoll, http.StatusBadRequest, func(req message.RequestWrapper) []byte {
+		return nil
+	})
+	resp, err = client.DoOidcPoll(ctx, testutil.NewTestLogger(), "") //blank code should error!
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}

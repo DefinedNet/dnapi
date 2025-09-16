@@ -67,6 +67,14 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.handlerEnroll(w, r)
 	case message.EndpointV1:
 		s.handlerDNClient(w, r)
+	case message.PreAuthEndpoint:
+		expected := s.expectedRequests[0]
+		s.expectedRequests = s.expectedRequests[1:]
+		res := expected.dncRequestResponse
+		w.WriteHeader(res.statusCode)
+		_, _ = w.Write(res.response(message.RequestWrapper{}))
+	case message.EnduserAuthPoll:
+		s.handlerDoOidcPoll(w, r)
 	default:
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))
 		http.NotFound(w, r)
@@ -150,6 +158,29 @@ func (s *Server) SetP256Pubkey(p256PubkeyPEM []byte) error {
 	}
 
 	return nil
+}
+
+func (s *Server) handlerDoOidcPoll(w http.ResponseWriter, r *http.Request) {
+	// Get the test case to validate
+	expected := s.expectedRequests[0]
+	s.expectedRequests = s.expectedRequests[1:]
+	if !expected.dnclientAPI {
+		s.errors = append(s.errors, fmt.Errorf("unexpected dnclient API request - expected enrollment request"))
+		http.Error(w, "unexpected dnclient API request", http.StatusInternalServerError)
+		return
+	}
+	res := expected.dncRequestResponse
+
+	token := r.URL.Query()["token"]
+	if len(token) == 0 {
+		s.errors = append(s.errors, fmt.Errorf("missing token"))
+		http.Error(w, "missing token", http.StatusBadRequest)
+		return
+	}
+
+	// return the associated response
+	w.WriteHeader(res.statusCode)
+	w.Write(res.response(message.RequestWrapper{}))
 }
 
 func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
