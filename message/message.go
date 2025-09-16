@@ -227,6 +227,10 @@ type PreAuthResponse struct {
 
 const EnduserAuthPoll = "/v1/enduser-auth/poll"
 
+const EnduserAuthPollStatusNotStarted = "NOT_STARTED"
+const EnduserAuthPollStatusStarted = "OIDC_STARTED"
+const EnduserAuthPollStatusSuccess = "SUCCESS"
+
 type EnduserAuthPollResponse struct {
 	Status         string `json:"status"`
 	LoginUrl       string `json:"loginUrl"`
