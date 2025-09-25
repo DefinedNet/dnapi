@@ -233,6 +233,6 @@ const EndpointAuthPollStatusSuccess = "SUCCESS"
 
 type EndpointAuthPollResponse struct {
 	Status         string `json:"status"`
-	LoginUrl       string `json:"loginUrl"`
+	LoginURL       string `json:"loginUrl"`
 	EnrollmentCode string `json:"enrollmentCode"`
 }

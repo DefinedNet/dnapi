@@ -999,7 +999,7 @@ func TestDoOidcPoll(t *testing.T) {
 	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
 		return jsonMarshal(message.EndpointAuthPollResponse{
 			Status:         "something",
-			LoginUrl:       "https://login.example.com",
+			LoginURL:       "https://login.example.com",
 			EnrollmentCode: "",
 		})
 	})
@@ -1009,7 +1009,7 @@ func TestDoOidcPoll(t *testing.T) {
 	resp, err := client.DoOIDCPoll(ctx, testutil.NewTestLogger(), expectedCode)
 	require.NoError(t, err)
 	assert.Equal(t, resp.Status, "something")
-	assert.Equal(t, resp.LoginUrl, "https://login.example.com")
+	assert.Equal(t, resp.LoginURL, "https://login.example.com")
 	assert.Equal(t, resp.EnrollmentCode, "")
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
