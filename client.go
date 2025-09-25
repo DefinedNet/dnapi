@@ -608,10 +608,8 @@ func (c *Client) GetOidcPollCode(ctx context.Context, logger logrus.FieldLogger)
 
 	// Log the request ID returned from the server
 	reqID := resp.Header.Get("X-Request-ID")
-	l := logger.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "reqID": reqID})
 	b, err := c.handleBody(resp)
 	if err != nil {
-		l.Error(err) //todo I don't like erroring and also logging?
 		return "", err
 	}
 
