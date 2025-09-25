@@ -219,13 +219,13 @@ func (nc *NetworkCurve) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-const PreAuthEndpoint = "/v1/enduser-auth/preauth"
+const PreAuthEndpoint = "/v1/endpoint-auth/preauth"
 
 type PreAuthResponse struct {
 	PollToken string `json:"pollToken"`
 }
 
-const EnduserAuthPoll = "/v1/enduser-auth/poll"
+const EndpointAuthPoll = "/v1/enduser-auth/poll"
 
 const EnduserAuthPollStatusNotStarted = "NOT_STARTED"
 const EnduserAuthPollStatusStarted = "OIDC_STARTED"

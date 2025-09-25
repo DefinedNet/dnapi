@@ -623,7 +623,7 @@ func (c *Client) GetOidcPollCode(ctx context.Context, logger logrus.FieldLogger)
 	return r.PollToken, nil
 }
 
-func (c *Client) DoOidcPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EnduserAuthPollResponse, error) {
+func (c *Client) DoOIDCPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EnduserAuthPollResponse, error) {
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making DoOidcPoll request to API")
 
 	enrollURL, err := url.JoinPath(c.dnServer, message.EnduserAuthPoll)
