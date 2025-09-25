@@ -225,13 +225,13 @@ type PreAuthResponse struct {
 	PollToken string `json:"pollToken"`
 }
 
-const EndpointAuthPoll = "/v1/enduser-auth/poll"
+const EndpointAuthPoll = "/v1/endpoint-auth/poll"
 
-const EnduserAuthPollStatusNotStarted = "NOT_STARTED"
-const EnduserAuthPollStatusStarted = "OIDC_STARTED"
-const EnduserAuthPollStatusSuccess = "SUCCESS"
+const EndpointAuthPollStatusNotStarted = "NOT_STARTED"
+const EndpointAuthPollStatusStarted = "OIDC_STARTED"
+const EndpointAuthPollStatusSuccess = "SUCCESS"
 
-type EnduserAuthPollResponse struct {
+type EndpointAuthPollResponse struct {
 	Status         string `json:"status"`
 	LoginUrl       string `json:"loginUrl"`
 	EnrollmentCode string `json:"enrollmentCode"`

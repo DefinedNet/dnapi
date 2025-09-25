@@ -623,15 +623,14 @@ func (c *Client) GetOidcPollCode(ctx context.Context, logger logrus.FieldLogger)
 	return r.PollToken, nil
 }
 
-func (c *Client) DoOIDCPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EnduserAuthPollResponse, error) {
+func (c *Client) DoOIDCPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EndpointAuthPollResponse, error) {
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making DoOidcPoll request to API")
-
-	enrollURL, err := url.JoinPath(c.dnServer, message.EnduserAuthPoll)
+	pollURL, err := url.JoinPath(c.dnServer, message.EndpointAuthPoll)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", enrollURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -655,7 +654,7 @@ func (c *Client) DoOIDCPoll(ctx context.Context, logger logrus.FieldLogger, poll
 	}
 
 	// Decode the response
-	r := message.EnduserAuthPollResponse{}
+	r := message.EndpointAuthPollResponse{}
 	if err = json.Unmarshal(b, &r); err != nil {
 		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
 	}

@@ -996,8 +996,8 @@ func TestDoOidcPoll(t *testing.T) {
 	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
 	t.Cleanup(func() { ts.Close() })
 	const expectedCode = "123456"
-	ts.ExpectRequest(message.EnduserAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
-		return jsonMarshal(message.EnduserAuthPollResponse{
+	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
+		return jsonMarshal(message.EndpointAuthPollResponse{
 			Status:         "something",
 			LoginUrl:       "https://login.example.com",
 			EnrollmentCode: "",
@@ -1006,7 +1006,7 @@ func TestDoOidcPoll(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	resp, err := client.DoOidcPoll(ctx, testutil.NewTestLogger(), expectedCode)
+	resp, err := client.DoOIDCPoll(ctx, testutil.NewTestLogger(), expectedCode)
 	require.NoError(t, err)
 	assert.Equal(t, resp.Status, "something")
 	assert.Equal(t, resp.LoginUrl, "https://login.example.com")
@@ -1015,10 +1015,10 @@ func TestDoOidcPoll(t *testing.T) {
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
 	//unhappy path
-	ts.ExpectRequest(message.EnduserAuthPoll, http.StatusBadRequest, func(req message.RequestWrapper) []byte {
+	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusBadRequest, func(req message.RequestWrapper) []byte {
 		return nil
 	})
-	resp, err = client.DoOidcPoll(ctx, testutil.NewTestLogger(), "") //blank code should error!
+	resp, err = client.DoOIDCPoll(ctx, testutil.NewTestLogger(), "") //blank code should error!
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Empty(t, ts.Errors())
