@@ -470,7 +470,8 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 func (c *Client) handleBody(resp *http.Response) ([]byte, error) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read the response body: %s", err)
+		return nil, &APIError{e: fmt.Errorf("failed to read the response body: %s", err), ReqID: resp.Header.Get("X-Request-ID")}
+
 	}
 
 	switch resp.StatusCode {
@@ -485,7 +486,7 @@ func (c *Client) handleBody(resp *http.Response) ([]byte, error) {
 		if err := json.Unmarshal(respBody, &errors); err != nil {
 			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
 		}
-		return nil, errors.Errors.ToError()
+		return nil, &APIError{e: errors.Errors.ToError(), ReqID: resp.Header.Get("X-Request-ID")}
 	}
 }
 
