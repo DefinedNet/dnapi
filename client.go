@@ -587,7 +587,7 @@ func nonce() []byte {
 	return nonce
 }
 
-func (c *Client) GetOidcPollCode(ctx context.Context, logger logrus.FieldLogger) (string, error) {
+func (c *Client) EndpointPreauth(ctx context.Context, logger logrus.FieldLogger) (string, error) {
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making GetOidcPollCode request to API")
 
 	enrollURL, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
@@ -622,8 +622,9 @@ func (c *Client) GetOidcPollCode(ctx context.Context, logger logrus.FieldLogger)
 	return r.PollToken, nil
 }
 
-func (c *Client) DoOIDCPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EndpointAuthPollResponse, error) {
+func (c *Client) EndpointAuthPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EndpointAuthPollResponse, error) {
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making DoOidcPoll request to API")
+
 	pollURL, err := url.JoinPath(c.dnServer, message.EndpointAuthPoll)
 	if err != nil {
 		return nil, err
