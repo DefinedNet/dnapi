@@ -625,18 +625,12 @@ func (c *Client) EndpointPreauth(ctx context.Context, logger logrus.FieldLogger)
 func (c *Client) EndpointAuthPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EndpointAuthPollResponse, error) {
 	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making DoOidcPoll request to API")
 
-	pollURL, err := url.JoinPath(c.dnServer, message.EndpointAuthPoll)
-	if err != nil {
-		return nil, err
-	}
+	pollURL := (&url.URL{Scheme: "https", Host: c.dnServer, Path: message.EndpointAuthPoll, RawQuery: url.Values{"token": {pollCode}}.Encode()}).String()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	q := req.URL.Query()
-	q.Add("token", pollCode)
-	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.client.Do(req)
 	if err != nil {
