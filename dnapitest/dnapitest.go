@@ -73,7 +73,7 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		res := expected.dncRequestResponse
 		w.WriteHeader(res.statusCode)
 		_, _ = w.Write(res.response(message.RequestWrapper{}))
-	case message.EnduserAuthPoll:
+	case message.EndpointAuthPoll:
 		s.handlerDoOidcPoll(w, r)
 	default:
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))
