@@ -624,7 +624,7 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*messag
 	if err != nil {
 		return nil, err
 	}
-	pollURL = fmt.Sprintf("%s?token=%s", pollURL, url.QueryEscape(pollCode))
+	pollURL = fmt.Sprintf("%s?pollToken=%s", pollURL, url.QueryEscape(pollCode))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
 	if err != nil {
