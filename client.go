@@ -471,7 +471,6 @@ func (c *Client) handleBody(resp *http.Response) ([]byte, error) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, &APIError{e: fmt.Errorf("failed to read the response body: %s", err), ReqID: resp.Header.Get("X-Request-ID")}
-
 	}
 
 	switch resp.StatusCode {
@@ -588,12 +587,12 @@ func nonce() []byte {
 }
 
 func (c *Client) EndpointPreauth(ctx context.Context) (string, error) {
-	enrollURL, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
+	dest, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", enrollURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", dest, nil)
 	if err != nil {
 		return "", err
 	}
