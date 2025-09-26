@@ -222,17 +222,30 @@ func (nc *NetworkCurve) UnmarshalJSON(b []byte) error {
 const PreAuthEndpoint = "/v1/endpoint-auth/preauth"
 
 type PreAuthResponse struct {
+	// Only one of Data or Errors should be set in a response
+	Data   PreAuthData `json:"data"`
+	Errors APIErrors   `json:"errors"`
+}
+
+type PreAuthData struct {
 	PollToken string `json:"pollToken"`
+	LoginURL  string `json:"loginURL"`
 }
 
 const EndpointAuthPoll = "/v1/endpoint-auth/poll"
 
 const EndpointAuthPollStatusNotStarted = "NOT_STARTED"
+const EndpointAuthPollStatusWaiting = "WAITING"
 const EndpointAuthPollStatusStarted = "OIDC_STARTED"
 const EndpointAuthPollStatusSuccess = "SUCCESS"
 
 type EndpointAuthPollResponse struct {
-	Status         string `json:"status"`
-	LoginURL       string `json:"loginURL"`
+	// Only one of Data or Errors should be set in a response
+	Data   EndpointAuthPollData `json:"data"`
+	Errors APIErrors            `json:"errors"`
+}
+
+type EndpointAuthPollData struct {
+	Status         string `json:"state"`
 	EnrollmentCode string `json:"enrollmentCode"`
 }

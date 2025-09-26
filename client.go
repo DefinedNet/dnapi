@@ -586,20 +586,20 @@ func nonce() []byte {
 	return nonce
 }
 
-func (c *Client) EndpointPreauth(ctx context.Context) (string, error) {
+func (c *Client) EndpointPreauth(ctx context.Context) (*message.PreAuthData, error) {
 	dest, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", dest, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -607,19 +607,23 @@ func (c *Client) EndpointPreauth(ctx context.Context) (string, error) {
 	reqID := resp.Header.Get("X-Request-ID")
 	b, err := c.handleBody(resp)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Decode the response
 	r := message.PreAuthResponse{}
 	if err = json.Unmarshal(b, &r); err != nil {
-		return "", &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
 	}
 
-	return r.PollToken, nil
+	if r.Data.PollToken == "" || r.Data.LoginURL == "" {
+		return nil, &APIError{e: fmt.Errorf("missing pollToken or loginURL"), ReqID: reqID}
+	}
+
+	return &r.Data, nil
 }
 
-func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollResponse, error) {
+func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollData, error) {
 	pollURL, err := url.JoinPath(c.dnServer, message.EndpointAuthPoll)
 	if err != nil {
 		return nil, err
@@ -650,5 +654,5 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*messag
 		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
 	}
 
-	return &r, nil
+	return &r.Data, nil
 }

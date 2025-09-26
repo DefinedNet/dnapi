@@ -965,24 +965,26 @@ func TestGetOidcPollCode(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 	const expectedCode = "123456"
 	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusOK, func(req message.RequestWrapper) []byte {
-		return jsonMarshal(message.PreAuthResponse{PollToken: expectedCode})
+		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	code, err := client.EndpointPreauth(ctx)
+	resp, err := client.EndpointPreauth(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, expectedCode, code)
+	assert.NotNil(t, resp)
+	assert.Equal(t, expectedCode, resp.PollToken)
+	assert.Equal(t, "https://example.com", resp.LoginURL)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
 	//unhappy path
 	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusBadGateway, func(req message.RequestWrapper) []byte {
-		return jsonMarshal(message.PreAuthResponse{PollToken: expectedCode})
+		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
 	})
-	code, err = client.EndpointPreauth(ctx)
+	resp, err = client.EndpointPreauth(ctx)
 	require.Error(t, err)
-	assert.Equal(t, "", code)
+	require.Nil(t, resp)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 }
@@ -997,11 +999,10 @@ func TestDoOidcPoll(t *testing.T) {
 	t.Cleanup(func() { ts.Close() })
 	const expectedCode = "123456"
 	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
-		return jsonMarshal(message.EndpointAuthPollResponse{
+		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
 			Status:         "something",
-			LoginURL:       "https://login.example.com",
 			EnrollmentCode: "",
-		})
+		}})
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -1009,7 +1010,6 @@ func TestDoOidcPoll(t *testing.T) {
 	resp, err := client.EndpointAuthPoll(ctx, expectedCode)
 	require.NoError(t, err)
 	assert.Equal(t, resp.Status, "something")
-	assert.Equal(t, resp.LoginURL, "https://login.example.com")
 	assert.Equal(t, resp.EnrollmentCode, "")
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())

@@ -171,10 +171,10 @@ func (s *Server) handlerDoOidcPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	res := expected.dncRequestResponse
 
-	token := r.URL.Query()["token"]
+	token := r.URL.Query()["pollToken"]
 	if len(token) == 0 {
-		s.errors = append(s.errors, fmt.Errorf("missing token"))
-		http.Error(w, "missing token", http.StatusBadRequest)
+		s.errors = append(s.errors, fmt.Errorf("missing pollToken"))
+		http.Error(w, "missing pollToken", http.StatusBadRequest)
 		return
 	}
 
