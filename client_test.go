@@ -970,7 +970,7 @@ func TestGetOidcPollCode(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	code, err := client.EndpointPreauth(ctx, testutil.NewTestLogger())
+	code, err := client.EndpointPreauth(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, expectedCode, code)
 	assert.Empty(t, ts.Errors())
@@ -980,7 +980,7 @@ func TestGetOidcPollCode(t *testing.T) {
 	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusBadGateway, func(req message.RequestWrapper) []byte {
 		return jsonMarshal(message.PreAuthResponse{PollToken: expectedCode})
 	})
-	code, err = client.EndpointPreauth(ctx, testutil.NewTestLogger())
+	code, err = client.EndpointPreauth(ctx)
 	require.Error(t, err)
 	assert.Equal(t, "", code)
 	assert.Empty(t, ts.Errors())
@@ -1006,7 +1006,7 @@ func TestDoOidcPoll(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	resp, err := client.EndpointAuthPoll(ctx, testutil.NewTestLogger(), expectedCode)
+	resp, err := client.EndpointAuthPoll(ctx, expectedCode)
 	require.NoError(t, err)
 	assert.Equal(t, resp.Status, "something")
 	assert.Equal(t, resp.LoginURL, "https://login.example.com")
@@ -1018,7 +1018,7 @@ func TestDoOidcPoll(t *testing.T) {
 	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusBadRequest, func(req message.RequestWrapper) []byte {
 		return nil
 	})
-	resp, err = client.EndpointAuthPoll(ctx, testutil.NewTestLogger(), "") //blank code should error!
+	resp, err = client.EndpointAuthPoll(ctx, "") //blank code should error!
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Empty(t, ts.Errors())

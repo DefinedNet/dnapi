@@ -587,9 +587,7 @@ func nonce() []byte {
 	return nonce
 }
 
-func (c *Client) EndpointPreauth(ctx context.Context, logger logrus.FieldLogger) (string, error) {
-	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making GetOidcPollCode request to API")
-
+func (c *Client) EndpointPreauth(ctx context.Context) (string, error) {
 	enrollURL, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
 	if err != nil {
 		return "", err
@@ -622,9 +620,7 @@ func (c *Client) EndpointPreauth(ctx context.Context, logger logrus.FieldLogger)
 	return r.PollToken, nil
 }
 
-func (c *Client) EndpointAuthPoll(ctx context.Context, logger logrus.FieldLogger, pollCode string) (*message.EndpointAuthPollResponse, error) {
-	logger.WithFields(logrus.Fields{"server": c.dnServer}).Debug("Making DoOidcPoll request to API")
-
+func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollResponse, error) {
 	pollURL, err := url.JoinPath(c.dnServer, message.EndpointAuthPoll)
 	if err != nil {
 		return nil, err
@@ -644,10 +640,8 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, logger logrus.FieldLogger
 
 	// Log the request ID returned from the server
 	reqID := resp.Header.Get("X-Request-ID")
-	l := logger.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "reqID": reqID})
 	b, err := c.handleBody(resp)
 	if err != nil {
-		l.Error(err) //todo I don't like erroring and also logging?
 		return nil, err
 	}
 
