@@ -467,28 +467,6 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	return sc, nil
 }
 
-func (c *Client) handleBody(resp *http.Response) ([]byte, error) {
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &APIError{e: fmt.Errorf("failed to read the response body: %s", err), ReqID: resp.Header.Get("X-Request-ID")}
-	}
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return respBody, nil
-	case http.StatusUnauthorized:
-		return nil, ErrInvalidCredentials
-	default:
-		var errors struct {
-			Errors message.APIErrors
-		}
-		if err := json.Unmarshal(respBody, &errors); err != nil {
-			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
-		}
-		return nil, &APIError{e: errors.Errors.ToError(), ReqID: resp.Header.Get("X-Request-ID")}
-	}
-}
-
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
 // On success, it returns the response message body. On error, the error is returned.
 func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) ([]byte, error) {
@@ -511,7 +489,25 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 	defer resp.Body.Close()
 
-	return c.handleBody(resp)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the response body: %s", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return respBody, nil
+	case http.StatusUnauthorized:
+		return nil, ErrInvalidCredentials
+	default:
+		var errors struct {
+			Errors message.APIErrors
+		}
+		if err := json.Unmarshal(respBody, &errors); err != nil {
+			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
+		}
+		return nil, errors.Errors.ToError()
+	}
 }
 
 // StreamController is used for interacting with streaming requests to the API.
@@ -586,7 +582,7 @@ func nonce() []byte {
 	return nonce
 }
 
-func (c *Client) EndpointPreauth(ctx context.Context) (*message.PreAuthData, error) {
+func (c *Client) EndpointPreAuth(ctx context.Context) (*message.PreAuthData, error) {
 	dest, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
 	if err != nil {
 		return nil, err
@@ -603,24 +599,33 @@ func (c *Client) EndpointPreauth(ctx context.Context) (*message.PreAuthData, err
 	}
 	defer resp.Body.Close()
 
-	// Log the request ID returned from the server
 	reqID := resp.Header.Get("X-Request-ID")
-	b, err := c.handleBody(resp)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, &APIError{e: fmt.Errorf("failed to read the response body: %s", err), ReqID: reqID}
 	}
 
-	// Decode the response
-	r := message.PreAuthResponse{}
-	if err = json.Unmarshal(b, &r); err != nil {
-		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
-	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		r := message.PreAuthResponse{}
+		if err = json.Unmarshal(respBody, &r); err != nil {
+			return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, respBody), ReqID: reqID}
+		}
 
-	if r.Data.PollToken == "" || r.Data.LoginURL == "" {
-		return nil, &APIError{e: fmt.Errorf("missing pollToken or loginURL"), ReqID: reqID}
-	}
+		if r.Data.PollToken == "" || r.Data.LoginURL == "" {
+			return nil, &APIError{e: fmt.Errorf("missing pollToken or loginURL"), ReqID: reqID}
+		}
 
-	return &r.Data, nil
+		return &r.Data, nil
+	default:
+		var errors struct {
+			Errors message.APIErrors
+		}
+		if err := json.Unmarshal(respBody, &errors); err != nil {
+			return nil, fmt.Errorf("bad status code '%d', body: %s", resp.StatusCode, respBody)
+		}
+		return nil, &APIError{e: errors.Errors.ToError(), ReqID: reqID}
+	}
 }
 
 func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollData, error) {
@@ -641,18 +646,26 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*messag
 	}
 	defer resp.Body.Close()
 
-	// Log the request ID returned from the server
 	reqID := resp.Header.Get("X-Request-ID")
-	b, err := c.handleBody(resp)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, &APIError{e: fmt.Errorf("failed to read the response body: %s", err), ReqID: reqID}
 	}
 
-	// Decode the response
-	r := message.EndpointAuthPollResponse{}
-	if err = json.Unmarshal(b, &r); err != nil {
-		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		r := message.EndpointAuthPollResponse{}
+		if err = json.Unmarshal(respBody, &r); err != nil {
+			return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, respBody), ReqID: reqID}
+		}
+		return &r.Data, nil
+	default:
+		var errors struct {
+			Errors message.APIErrors
+		}
+		if err := json.Unmarshal(respBody, &errors); err != nil {
+			return nil, fmt.Errorf("bad status code '%d', body: %s", resp.StatusCode, respBody)
+		}
+		return nil, &APIError{e: errors.Errors.ToError(), ReqID: reqID}
 	}
-
-	return &r.Data, nil
 }

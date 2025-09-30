@@ -234,11 +234,13 @@ type PreAuthData struct {
 
 const EndpointAuthPoll = "/v1/endpoint-auth/poll"
 
-const EndpointAuthPollStatusNotStarted = "NOT_STARTED"
-const EndpointAuthPollStatusWaiting = "WAITING"
-const EndpointAuthPollStatusStarted = "STARTED"
-const EndpointAuthPollStatusSuccess = "SUCCESS"
-const EndpointAuthPollStatusCompleted = "COMPLETED"
+type EndpointAuthState string
+
+const (
+	EndpointAuthWaiting   EndpointAuthState = "WAITING"
+	EndpointAuthStarted   EndpointAuthState = "STARTED"
+	EndpointAuthCompleted EndpointAuthState = "COMPLETED"
+)
 
 type EndpointAuthPollResponse struct {
 	// Only one of Data or Errors should be set in a response
@@ -247,6 +249,6 @@ type EndpointAuthPollResponse struct {
 }
 
 type EndpointAuthPollData struct {
-	Status         string `json:"state"`
-	EnrollmentCode string `json:"enrollmentCode"`
+	Status         EndpointAuthState `json:"state"`
+	EnrollmentCode string            `json:"enrollmentCode"`
 }

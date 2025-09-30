@@ -970,7 +970,7 @@ func TestGetOidcPollCode(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	resp, err := client.EndpointPreauth(ctx)
+	resp, err := client.EndpointPreAuth(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, expectedCode, resp.PollToken)
@@ -982,7 +982,7 @@ func TestGetOidcPollCode(t *testing.T) {
 	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusBadGateway, func(req message.RequestWrapper) []byte {
 		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
 	})
-	resp, err = client.EndpointPreauth(ctx)
+	resp, err = client.EndpointPreAuth(ctx)
 	require.Error(t, err)
 	require.Nil(t, resp)
 	assert.Empty(t, ts.Errors())
@@ -1000,7 +1000,7 @@ func TestDoOidcPoll(t *testing.T) {
 	const expectedCode = "123456"
 	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
 		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
-			Status:         "something",
+			Status:         message.EndpointAuthStarted,
 			EnrollmentCode: "",
 		}})
 	})
@@ -1009,7 +1009,7 @@ func TestDoOidcPoll(t *testing.T) {
 	defer cancel()
 	resp, err := client.EndpointAuthPoll(ctx, expectedCode)
 	require.NoError(t, err)
-	assert.Equal(t, resp.Status, "something")
+	assert.Equal(t, resp.Status, message.EndpointAuthStarted)
 	assert.Equal(t, resp.EnrollmentCode, "")
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -1021,6 +1021,20 @@ func TestDoOidcPoll(t *testing.T) {
 	resp, err = client.EndpointAuthPoll(ctx, "") //blank code should error!
 	require.Error(t, err)
 	assert.Nil(t, resp)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	//complete path
+	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
+		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
+			Status:         message.EndpointAuthCompleted,
+			EnrollmentCode: "deadbeef",
+		}})
+	})
+	resp, err = client.EndpointAuthPoll(ctx, expectedCode)
+	require.NoError(t, err)
+	assert.Equal(t, resp.Status, message.EndpointAuthCompleted)
+	assert.Equal(t, resp.EnrollmentCode, "deadbeef")
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 }
