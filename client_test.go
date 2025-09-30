@@ -241,7 +241,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.NotEmpty(t, pkey)
 
 	// Invalid request signature should return a specific error
-	ts.ExpectRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		return []byte("")
 	})
 
@@ -265,7 +265,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Len(t, serverErrs, 1)
 
 	// Invalid signature
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     2,
@@ -320,7 +320,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// Invalid counter
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     0,
@@ -379,7 +379,7 @@ func TestDoUpdate(t *testing.T) {
 	hostIP := "192.168.100.1"
 
 	// This time sign the response with the correct CA key.
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
@@ -505,7 +505,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	assert.NotEmpty(t, pkey)
 
 	// Invalid request signature should return a specific error
-	ts.ExpectRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		return []byte("")
 	})
 
@@ -528,7 +528,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.Len(t, serverErrs, 1)
 
 	// Invalid signature
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 2,
@@ -574,7 +574,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// Invalid counter
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 0,
@@ -618,7 +618,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// This time sign the response with the correct CA key.
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
@@ -743,7 +743,7 @@ func TestCommandResponse(t *testing.T) {
 	// This time sign the response with the correct CA key.
 	responseToken := "abc123"
 	res := map[string]any{"msg": "Hello, world!"}
-	ts.ExpectRequest(message.CommandResponse, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CommandResponse, http.StatusOK, func(r message.RequestWrapper) []byte {
 		var val map[string]any
 		err := json.Unmarshal(r.Value, &val)
 		require.NoError(t, err)
@@ -759,7 +759,7 @@ func TestCommandResponse(t *testing.T) {
 
 	// Test error handling
 	errorMsg := "sample error"
-	ts.ExpectRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
 		return jsonMarshal(message.EnrollResponse{
 			Errors: message.APIErrors{{
 				Code:    "ERR_INVALID_VALUE",
@@ -964,7 +964,7 @@ func TestGetOidcPollCode(t *testing.T) {
 	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
 	t.Cleanup(func() { ts.Close() })
 	const expectedCode = "123456"
-	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusOK, func(req message.RequestWrapper) []byte {
+	ts.ExpectAPIRequest(http.StatusOK, func(req any) []byte {
 		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
 	})
 
@@ -979,7 +979,7 @@ func TestGetOidcPollCode(t *testing.T) {
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
 	//unhappy path
-	ts.ExpectRequest(message.PreAuthEndpoint, http.StatusBadGateway, func(req message.RequestWrapper) []byte {
+	ts.ExpectAPIRequest(http.StatusBadGateway, func(req any) []byte {
 		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
 	})
 	resp, err = client.EndpointPreAuth(ctx)
@@ -998,7 +998,7 @@ func TestDoOidcPoll(t *testing.T) {
 	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
 	t.Cleanup(func() { ts.Close() })
 	const expectedCode = "123456"
-	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
 		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
 			Status:         message.EndpointAuthStarted,
 			EnrollmentCode: "",
@@ -1015,7 +1015,7 @@ func TestDoOidcPoll(t *testing.T) {
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
 	//unhappy path
-	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusBadRequest, func(req message.RequestWrapper) []byte {
+	ts.ExpectAPIRequest(http.StatusBadRequest, func(r any) []byte {
 		return nil
 	})
 	resp, err = client.EndpointAuthPoll(ctx, "") //blank code should error!
@@ -1025,7 +1025,7 @@ func TestDoOidcPoll(t *testing.T) {
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
 	//complete path
-	ts.ExpectRequest(message.EndpointAuthPoll, http.StatusOK, func(req message.RequestWrapper) []byte {
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
 		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
 			Status:         message.EndpointAuthCompleted,
 			EnrollmentCode: "deadbeef",
