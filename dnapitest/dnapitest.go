@@ -35,7 +35,7 @@ type Server struct {
 
 	streamedBody []byte
 
-	expectedRequests []requestResponse
+	expectedRequests []Responder
 
 	expectedEdPubkey   ed25519.PublicKey
 	expectedP256Pubkey *ecdsa.PublicKey
@@ -67,6 +67,13 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.handlerEnroll(w, r)
 	case message.EndpointV1:
 		s.handlerDNClient(w, r)
+	case message.PreAuthEndpoint:
+		expected := s.expectedRequests[0]
+		s.expectedRequests = s.expectedRequests[1:]
+		w.WriteHeader(expected.StatusCode())
+		_, _ = w.Write(expected.Respond(nil))
+	case message.EndpointAuthPoll:
+		s.handlerDoOidcPoll(w, r)
 	default:
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))
 		http.NotFound(w, r)
@@ -75,14 +82,9 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
 	// Get the test case to validate
-	expected := s.expectedRequests[0]
+	expectedRaw := s.expectedRequests[0]
 	s.expectedRequests = s.expectedRequests[1:]
-	if expected.dnclientAPI {
-		s.errors = append(s.errors, fmt.Errorf("unexpected enrollment request - expected dnclient API request"))
-		http.Error(w, "unexpected enrollment request", http.StatusInternalServerError)
-		return
-	}
-	res := expected.enrollRequestResponse
+	res := expectedRaw.(*enrollRequestResponse)
 
 	// read and unmarshal body
 	var req message.EnrollRequest
@@ -113,7 +115,7 @@ func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
 
 	s.curve = res.curve
 
-	w.Write(res.response(req))
+	w.Write(res.Respond(req))
 }
 
 func (s *Server) SetCurve(curve message.NetworkCurve) {
@@ -152,16 +154,28 @@ func (s *Server) SetP256Pubkey(p256PubkeyPEM []byte) error {
 	return nil
 }
 
+func (s *Server) handlerDoOidcPoll(w http.ResponseWriter, r *http.Request) {
+	// Get the test case to validate
+	res := s.expectedRequests[0]
+	s.expectedRequests = s.expectedRequests[1:]
+
+	token := r.URL.Query()["pollToken"]
+	if len(token) == 0 {
+		s.errors = append(s.errors, fmt.Errorf("missing pollToken"))
+		http.Error(w, "missing pollToken", http.StatusBadRequest)
+		return
+	}
+
+	// return the associated response
+	w.WriteHeader(res.StatusCode())
+	w.Write(res.Respond(nil))
+}
+
 func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 	// Get the test case to validate
 	expected := s.expectedRequests[0]
 	s.expectedRequests = s.expectedRequests[1:]
-	if !expected.dnclientAPI {
-		s.errors = append(s.errors, fmt.Errorf("unexpected dnclient API request - expected enrollment request"))
-		http.Error(w, "unexpected dnclient API request", http.StatusInternalServerError)
-		return
-	}
-	res := expected.dncRequestResponse
+	res := expected.(*dncRequestResponse)
 
 	jd := json.NewDecoder(r.Body)
 
@@ -282,7 +296,7 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 
 	}
 
-	if expected.isStreamingRequest {
+	if res.isStreamingRequest {
 		s.streamedBody, err = io.ReadAll(io.MultiReader(jd.Buffered(), r.Body))
 		if err != nil {
 			s.errors = append(s.errors, fmt.Errorf("failed to read body: %w", err))
@@ -292,41 +306,40 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return the associated response
-	w.WriteHeader(res.statusCode)
-	w.Write(res.response(msg))
+	w.WriteHeader(res.StatusCode())
+	w.Write(res.Respond(msg))
 }
 
 func (s *Server) ExpectEnrollment(code string, curve message.NetworkCurve, response func(req message.EnrollRequest) []byte) {
-	s.expectedRequests = append(s.expectedRequests, requestResponse{
-		dnclientAPI: false,
-		enrollRequestResponse: enrollRequestResponse{
+	s.expectedRequests = append(s.expectedRequests,
+		&enrollRequestResponse{
 			expectedCode: code,
 			response:     response,
 			curve:        curve,
-		},
+		})
+}
+
+func (s *Server) ExpectAPIRequest(statusCode int, cb func(r any) []byte) {
+	s.expectedRequests = append(s.expectedRequests, &response{
+		statusCode: statusCode,
+		cb:         cb,
 	})
 }
 
-func (s *Server) ExpectRequest(msgType string, statusCode int, response func(r message.RequestWrapper) []byte) {
-	s.expectedRequests = append(s.expectedRequests, requestResponse{
-		dnclientAPI: true,
-		dncRequestResponse: dncRequestResponse{
-			statusCode:   statusCode,
-			expectedType: msgType,
-			response:     response,
-		},
+func (s *Server) ExpectDNClientRequest(msgType string, statusCode int, response func(r message.RequestWrapper) []byte) {
+	s.expectedRequests = append(s.expectedRequests, &dncRequestResponse{
+		statusCode:   statusCode,
+		expectedType: msgType,
+		response:     response,
 	})
 }
 
 func (s *Server) ExpectStreamingRequest(msgType string, statusCode int, response func(r message.RequestWrapper) []byte) {
-	s.expectedRequests = append(s.expectedRequests, requestResponse{
-		dnclientAPI:        true,
+	s.expectedRequests = append(s.expectedRequests, &dncRequestResponse{
 		isStreamingRequest: true,
-		dncRequestResponse: dncRequestResponse{
-			statusCode:   statusCode,
-			expectedType: msgType,
-			response:     response,
-		},
+		statusCode:         statusCode,
+		expectedType:       msgType,
+		response:           response,
 	})
 }
 
@@ -342,7 +355,7 @@ func (s *Server) RequestsRemaining() int {
 	return len(s.expectedRequests)
 }
 
-func (s *Server) ExpectedRequests() []requestResponse {
+func (s *Server) ExpectedRequests() []Responder {
 	return s.expectedRequests
 }
 
@@ -353,7 +366,7 @@ func (s *Server) LastStreamedBody() []byte {
 func NewServer(expectedUserAgent string) *Server {
 	s := &Server{
 		errors:            []error{},
-		expectedRequests:  []requestResponse{},
+		expectedRequests:  []Responder{},
 		expectedUserAgent: expectedUserAgent,
 		curve:             message.NetworkCurve25519, // default for legacy tests
 	}
@@ -363,25 +376,53 @@ func NewServer(expectedUserAgent string) *Server {
 	return s
 }
 
-type requestResponse struct {
-	dnclientAPI           bool
-	dncRequestResponse    dncRequestResponse
-	enrollRequestResponse enrollRequestResponse
-	isStreamingRequest    bool
+type Responder interface {
+	StatusCode() int
+	Respond(r any) []byte
+}
+
+type response struct {
+	statusCode int
+	cb         func(r any) []byte
+}
+
+func (r *response) StatusCode() int {
+	return r.statusCode
+}
+
+func (r *response) Respond(x any) []byte {
+	return r.cb(x)
 }
 
 type enrollRequestResponse struct {
 	expectedCode string
 	curve        message.NetworkCurve
+	response     func(r message.EnrollRequest) []byte
+}
 
-	response func(r message.EnrollRequest) []byte
+func (r *enrollRequestResponse) StatusCode() int {
+	return http.StatusOK //TODO?
+}
+
+func (r *enrollRequestResponse) Respond(x any) []byte {
+	y := x.(message.EnrollRequest)
+	return r.response(y)
 }
 
 type dncRequestResponse struct {
-	expectedType string
+	expectedType       string
+	isStreamingRequest bool
+	statusCode         int
+	response           func(r message.RequestWrapper) []byte
+}
 
-	statusCode int
-	response   func(r message.RequestWrapper) []byte
+func (r *dncRequestResponse) StatusCode() int {
+	return r.statusCode
+}
+
+func (r *dncRequestResponse) Respond(x any) []byte {
+	y := x.(message.RequestWrapper)
+	return r.response(y)
 }
 
 func GetNonce(r message.RequestWrapper) []byte {

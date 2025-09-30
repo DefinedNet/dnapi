@@ -241,7 +241,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.NotEmpty(t, pkey)
 
 	// Invalid request signature should return a specific error
-	ts.ExpectRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		return []byte("")
 	})
 
@@ -265,7 +265,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Len(t, serverErrs, 1)
 
 	// Invalid signature
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     2,
@@ -320,7 +320,7 @@ func TestDoUpdate(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// Invalid counter
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     0,
@@ -379,7 +379,7 @@ func TestDoUpdate(t *testing.T) {
 	hostIP := "192.168.100.1"
 
 	// This time sign the response with the correct CA key.
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
@@ -505,7 +505,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	assert.NotEmpty(t, pkey)
 
 	// Invalid request signature should return a specific error
-	ts.ExpectRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		return []byte("")
 	})
 
@@ -528,7 +528,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.Len(t, serverErrs, 1)
 
 	// Invalid signature
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 2,
@@ -574,7 +574,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// Invalid counter
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:  dnapitest.NebulaCfg(caPEM),
 			Counter: 0,
@@ -618,7 +618,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	require.Nil(t, pkey)
 
 	// This time sign the response with the correct CA key.
-	ts.ExpectRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 		newConfigResponse := message.DoUpdateResponse{
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
@@ -743,7 +743,7 @@ func TestCommandResponse(t *testing.T) {
 	// This time sign the response with the correct CA key.
 	responseToken := "abc123"
 	res := map[string]any{"msg": "Hello, world!"}
-	ts.ExpectRequest(message.CommandResponse, http.StatusOK, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CommandResponse, http.StatusOK, func(r message.RequestWrapper) []byte {
 		var val map[string]any
 		err := json.Unmarshal(r.Value, &val)
 		require.NoError(t, err)
@@ -759,7 +759,7 @@ func TestCommandResponse(t *testing.T) {
 
 	// Test error handling
 	errorMsg := "sample error"
-	ts.ExpectRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
+	ts.ExpectDNClientRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
 		return jsonMarshal(message.EnrollResponse{
 			Errors: message.APIErrors{{
 				Code:    "ERR_INVALID_VALUE",
@@ -953,4 +953,88 @@ func marshalCAPublicKey(curve cert.Curve, pubkey []byte) []byte {
 	default:
 		panic("unsupported curve")
 	}
+}
+
+func TestGetOidcPollCode(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
+	t.Cleanup(func() { ts.Close() })
+	const expectedCode = "123456"
+	ts.ExpectAPIRequest(http.StatusOK, func(req any) []byte {
+		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	resp, err := client.EndpointPreAuth(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, expectedCode, resp.PollToken)
+	assert.Equal(t, "https://example.com", resp.LoginURL)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	//unhappy path
+	ts.ExpectAPIRequest(http.StatusBadGateway, func(req any) []byte {
+		return jsonMarshal(message.PreAuthResponse{Data: message.PreAuthData{PollToken: expectedCode, LoginURL: "https://example.com"}})
+	})
+	resp, err = client.EndpointPreAuth(ctx)
+	require.Error(t, err)
+	require.Nil(t, resp)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}
+
+func TestDoOidcPoll(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	// attempting to defer ts.Close() will trigger early due to parallel testing - use T.Cleanup instead
+	t.Cleanup(func() { ts.Close() })
+	const expectedCode = "123456"
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
+		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
+			Status:         message.EndpointAuthStarted,
+			EnrollmentCode: "",
+		}})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	resp, err := client.EndpointAuthPoll(ctx, expectedCode)
+	require.NoError(t, err)
+	assert.Equal(t, resp.Status, message.EndpointAuthStarted)
+	assert.Equal(t, resp.EnrollmentCode, "")
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	//unhappy path
+	ts.ExpectAPIRequest(http.StatusBadRequest, func(r any) []byte {
+		return nil
+	})
+	resp, err = client.EndpointAuthPoll(ctx, "") //blank code should error!
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	//complete path
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
+		return jsonMarshal(message.EndpointAuthPollResponse{Data: message.EndpointAuthPollData{
+			Status:         message.EndpointAuthCompleted,
+			EnrollmentCode: "deadbeef",
+		}})
+	})
+	resp, err = client.EndpointAuthPoll(ctx, expectedCode)
+	require.NoError(t, err)
+	assert.Equal(t, resp.Status, message.EndpointAuthCompleted)
+	assert.Equal(t, resp.EnrollmentCode, "deadbeef")
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
 }
