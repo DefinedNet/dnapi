@@ -236,8 +236,9 @@ const EndpointAuthPoll = "/v1/endpoint-auth/poll"
 
 const EndpointAuthPollStatusNotStarted = "NOT_STARTED"
 const EndpointAuthPollStatusWaiting = "WAITING"
-const EndpointAuthPollStatusStarted = "OIDC_STARTED"
+const EndpointAuthPollStatusStarted = "STARTED"
 const EndpointAuthPollStatusSuccess = "SUCCESS"
+const EndpointAuthPollStatusCompleted = "COMPLETED"
 
 type EndpointAuthPollResponse struct {
 	// Only one of Data or Errors should be set in a response
