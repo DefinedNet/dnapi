@@ -156,7 +156,7 @@ func newNebulaX25519KeypairPEM() ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	pubkey, privkey = cert.MarshalX25519PublicKey(pubkey), cert.MarshalX25519PrivateKey(privkey)
+	pubkey, privkey = cert.MarshalPublicKeyToPEM(cert.Curve_CURVE25519, pubkey), cert.MarshalPrivateKeyToPEM(cert.Curve_P256, privkey)
 
 	return pubkey, privkey, nil
 }
@@ -173,8 +173,8 @@ func newNebulaP256KeypairPEM() ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	pubkey := cert.MarshalPublicKey(cert.Curve_P256, ecdhPrivkey.PublicKey().Bytes())
-	privkey := cert.MarshalPrivateKey(cert.Curve_P256, ecdhPrivkey.Bytes())
+	pubkey := cert.MarshalPublicKeyToPEM(cert.Curve_P256, ecdhPrivkey.PublicKey().Bytes())
+	privkey := cert.MarshalPrivateKeyToPEM(cert.Curve_P256, ecdhPrivkey.Bytes())
 
 	return pubkey, privkey, nil
 }
