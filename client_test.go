@@ -490,7 +490,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
-	// convert privkey to private key
+	// convert private key to public key
 	pubkey, err := keys.MarshalHostP256PublicKey(creds.PrivateKey.Public().Unwrap().(*ecdsa.PublicKey))
 	require.NoError(t, err)
 
