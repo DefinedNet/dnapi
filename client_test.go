@@ -994,6 +994,7 @@ func TestReauthenticate(t *testing.T) {
 	// make sure we got a login URL back
 	assert.NotEmpty(t, resp)
 	assert.NotEmpty(t, resp.LoginURL)
+	assert.Equal(t, "https://auth.example.com/login?authcode=123", resp.LoginURL)
 
 }
 

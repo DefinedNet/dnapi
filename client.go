@@ -420,8 +420,26 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 		return nil, err
 	}
 
+	resultWrapper := message.SignedResponseWrapper{}
+	err = json.Unmarshal(resp, &resultWrapper)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
+	}
+
+	// Verify the signature
+	valid := false
+	for _, caPubkey := range creds.TrustedKeys {
+		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return nil, fmt.Errorf("failed to verify signed API result")
+	}
+
 	var response message.ReauthenticateResponse
-	if err := json.Unmarshal(resp, &response); err != nil {
+	if err := json.Unmarshal(resultWrapper.Data.Message, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal DNClient response: %s", err)
 	}
 
