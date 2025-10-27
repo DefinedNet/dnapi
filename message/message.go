@@ -119,6 +119,16 @@ type ClientInfo struct {
 	Architecture string `json:"architecture"`
 }
 
+// ReauthenticateRequest is the request sent for a Reauthenticate request.
+type ReauthenticateRequest struct {
+	// Add fields as needed
+}
+
+// ReauthenticateResponse is the response message associated with a Reauthenticate request.
+type ReauthenticateResponse struct {
+	LoginURL string `json:"loginURL"`
+}
+
 // EnrollEndpoint is the REST enrollment endpoint.
 const EnrollEndpoint = "/v2/enroll"
 

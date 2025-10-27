@@ -898,6 +898,105 @@ func TestStreamCommandResponse(t *testing.T) {
 	assert.Equal(t, 0, ts.RequestsRemaining(), ts.ExpectedRequests())
 }
 
+func TestReauthenticate(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, caPrivkey := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalToPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	code := "foobar"
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{
+			// we need to send this or we'll get an error from the api client
+			"pki": m{"ca": string(caPEM)},
+			// here we reflect values back to the client for test purposes
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
+		})
+		if err != nil {
+			return jsonMarshal(message.EnrollResponse{
+				Errors: message.APIErrors{{
+					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
+					Message: "failed to marshal test response config",
+				}},
+			})
+		}
+
+		return jsonMarshal(message.EnrollResponse{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: marshalCAPublicKey(ca.Details.Curve, ca.Details.PublicKey),
+				Organization: message.HostOrgMetadata{
+					ID:   "foobaz",
+					Name: "foobar's foo org",
+				},
+				Network: message.HostNetworkMetadata{
+					ID:    "qux",
+					Name:  "the best network",
+					Curve: message.NetworkCurve25519,
+					CIDR:  "192.168.100.0/24",
+				},
+				Host: message.HostHostMetadata{
+					ID:        "quux",
+					Name:      "foo host",
+					IPAddress: "192.168.100.2",
+				},
+			},
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	require.NoError(t, err)
+
+	// make sure all credential values were set
+	assert.NotEmpty(t, creds.HostID)
+	assert.NotEmpty(t, creds.PrivateKey)
+	assert.NotEmpty(t, creds.TrustedKeys)
+	assert.NotEmpty(t, creds.Counter)
+
+	// make sure we got a config back
+	assert.NotEmpty(t, config)
+	assert.NotEmpty(t, pkey)
+
+	// This time sign the response with the correct CA key.
+	ts.ExpectDNClientRequest(message.Reauthenticate, http.StatusOK, func(r message.RequestWrapper) []byte {
+		newConfigResponse := message.ReauthenticateResponse{
+			LoginURL: "https://auth.example.com/login?authcode=123",
+		}
+		rawRes := jsonMarshal(newConfigResponse)
+
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: ed25519.Sign(caPrivkey, rawRes),
+			},
+		})
+	})
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	resp, err := c.Reauthenticate(ctx, *creds)
+	require.NoError(t, err)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	// make sure we got a login URL back
+	assert.NotEmpty(t, resp)
+	assert.NotEmpty(t, resp.LoginURL)
+
+}
+
 func jsonMarshal(v interface{}) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

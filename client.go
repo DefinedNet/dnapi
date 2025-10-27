@@ -409,6 +409,25 @@ func (c *Client) StreamCommandResponse(ctx context.Context, creds keys.Credentia
 	return c.streamingPostDNClient(ctx, message.CommandResponse, value, creds.HostID, creds.Counter, creds.PrivateKey)
 }
 
+func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*message.ReauthenticateResponse, error) {
+	value, err := json.Marshal(message.ReauthenticateRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	resp, err := c.postDNClient(ctx, message.Reauthenticate, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var response message.ReauthenticateResponse
+	if err := json.Unmarshal(resp, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal DNClient response: %s", err)
+	}
+
+	return &response, nil
+}
+
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
 // On success, it returns a StreamController to interact with the request. On error, the error is returned.
 func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) (*StreamController, error) {
