@@ -1,11 +1,11 @@
 module github.com/DefinedNet/dnapi
 
-go 1.24.0
+go 1.25
 
 require (
-	github.com/sirupsen/logrus v1.9.2
-	github.com/slackhq/nebula v1.7.1
-	github.com/stretchr/testify v1.8.2
+	github.com/sirupsen/logrus v1.9.3
+	github.com/slackhq/nebula v1.9.5-0.20250929184312-f1e992f6dd6c
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.42.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -16,7 +16,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
-	google.golang.org/protobuf v1.30.0 // indirect
+	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
