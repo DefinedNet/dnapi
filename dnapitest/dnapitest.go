@@ -294,6 +294,15 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+	case message.Reauthenticate:
+		var reauth message.ReauthenticateRequest
+		err = json.Unmarshal(msg.Value, &reauth)
+		if err != nil {
+			s.errors = append(s.errors, fmt.Errorf("failed to unmarshal ReauthenticateRequest: %w", err))
+			http.Error(w, "failed to unmarshal ReauthenticateRequest", http.StatusInternalServerError)
+			return
+		}
+
 	}
 
 	if res.isStreamingRequest {

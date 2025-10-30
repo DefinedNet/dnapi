@@ -13,6 +13,7 @@ const (
 	DoUpdate        = "DoUpdate"
 	LongPollWait    = "LongPollWait"
 	CommandResponse = "CommandResponse"
+	Reauthenticate  = "Reauthenticate"
 )
 
 // EndpointV1 is the version 1 DNClient API endpoint.
@@ -108,7 +109,7 @@ type CommandResponseRequest struct {
 	Response      any    `json:"response"`
 }
 
-// DNClientCommandResponseResponse is the response message associated with a CommandResponse call.
+// CommandResponseResponse is the response message associated with a CommandResponse call.
 type CommandResponseResponse struct{}
 
 type ClientInfo struct {
@@ -116,6 +117,16 @@ type ClientInfo struct {
 	Version      string `json:"version"`
 	OS           string `json:"os"`
 	Architecture string `json:"architecture"`
+}
+
+// ReauthenticateRequest is the request sent for a Reauthenticate request.
+type ReauthenticateRequest struct {
+	// Add fields as needed
+}
+
+// ReauthenticateResponse is the response message associated with a Reauthenticate request.
+type ReauthenticateResponse struct {
+	LoginURL string `json:"loginURL"`
 }
 
 // EnrollEndpoint is the REST enrollment endpoint.
