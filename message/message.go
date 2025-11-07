@@ -80,7 +80,7 @@ type DoUpdateResponse struct {
 	Organization     HostOrgMetadata           `json:"organization"`
 	Network          HostNetworkMetadata       `json:"network"`
 	Host             HostHostMetadata          `json:"host"`
-	EndpointOIDCMeta *HostEndpointOIDCMetadata `json:"endpointOIDC,omitempty"`
+	EndpointOIDCMeta *HostEndpointOIDCMetadata `json:"endpointOIDC"`
 }
 
 // LongPollWaitResponseWrapper contains a response to LongPollWait inside "data."
@@ -160,7 +160,7 @@ type EnrollResponseData struct {
 	Organization     HostOrgMetadata           `json:"organization"`
 	Network          HostNetworkMetadata       `json:"network"`
 	Host             HostHostMetadata          `json:"host"`
-	EndpointOIDCMeta *HostEndpointOIDCMetadata `json:"endpointOIDC,omitempty"`
+	EndpointOIDCMeta *HostEndpointOIDCMetadata `json:"endpointOIDC"`
 }
 
 // HostOrgMetadata is included in EnrollResponseData.
