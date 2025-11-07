@@ -83,9 +83,10 @@ var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
 var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
 
 type ConfigMeta struct {
-	Org     ConfigOrg
-	Network ConfigNetwork
-	Host    ConfigHost
+	Org          ConfigOrg
+	Network      ConfigNetwork
+	Host         ConfigHost
+	EndpointOIDC ConfigEndpointOIDC
 }
 
 type ConfigOrg struct {
@@ -102,6 +103,10 @@ type ConfigHost struct {
 	ID        string
 	Name      string
 	IPAddress string
+}
+
+type ConfigEndpointOIDC struct {
+	Email *string
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -201,6 +206,9 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 			ID:        r.Data.HostID,
 			Name:      r.Data.Host.Name,
 			IPAddress: r.Data.Host.IPAddress,
+		},
+		EndpointOIDC: ConfigEndpointOIDC{
+			Email: r.Data.EndpointOIDCMeta.Email,
 		},
 	}
 

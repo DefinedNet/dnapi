@@ -152,13 +152,14 @@ type EnrollResponse struct {
 
 // EnrollResponseData is included in the EnrollResponse.
 type EnrollResponseData struct {
-	Config       []byte              `json:"config"`
-	HostID       string              `json:"hostID"`
-	Counter      uint                `json:"counter"`
-	TrustedKeys  []byte              `json:"trustedKeys"`
-	Organization HostOrgMetadata     `json:"organization"`
-	Network      HostNetworkMetadata `json:"network"`
-	Host         HostHostMetadata    `json:"host"`
+	Config           []byte                    `json:"config"`
+	HostID           string                    `json:"hostID"`
+	Counter          uint                      `json:"counter"`
+	TrustedKeys      []byte                    `json:"trustedKeys"`
+	Organization     HostOrgMetadata           `json:"organization"`
+	Network          HostNetworkMetadata       `json:"network"`
+	Host             HostHostMetadata          `json:"host"`
+	EndpointOIDCMeta *HostEndpointOIDCMetadata `json:"endpointOIDC,omitempty"`
 }
 
 // HostOrgMetadata is included in EnrollResponseData.
@@ -180,6 +181,11 @@ type HostHostMetadata struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	IPAddress string `json:"ipAddress"`
+}
+
+// HostEndpointOIDCMetadata is included in EnrollResponseData.
+type HostEndpointOIDCMetadata struct {
+	Email *string `json:"email"`
 }
 
 // APIError represents a single error returned in an API error response.
