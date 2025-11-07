@@ -83,9 +83,10 @@ var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
 var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
 
 type ConfigMeta struct {
-	Org     ConfigOrg
-	Network ConfigNetwork
-	Host    ConfigHost
+	Org          ConfigOrg
+	Network      ConfigNetwork
+	Host         ConfigHost
+	EndpointOIDC *ConfigEndpointOIDC
 }
 
 type ConfigOrg struct {
@@ -102,6 +103,10 @@ type ConfigHost struct {
 	ID        string
 	Name      string
 	IPAddress string
+}
+
+type ConfigEndpointOIDC struct {
+	Email string
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -202,6 +207,12 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 			Name:      r.Data.Host.Name,
 			IPAddress: r.Data.Host.IPAddress,
 		},
+	}
+
+	if r.Data.EndpointOIDCMeta != nil {
+		meta.EndpointOIDC = &ConfigEndpointOIDC{
+			Email: r.Data.EndpointOIDCMeta.Email,
+		}
 	}
 
 	// Determine the private keys to save based on the network curve type
@@ -380,6 +391,12 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 			Name:      result.Host.Name,
 			IPAddress: result.Host.IPAddress,
 		},
+	}
+
+	if result.EndpointOIDCMeta != nil {
+		meta.EndpointOIDC = &ConfigEndpointOIDC{
+			Email: result.EndpointOIDCMeta.Email,
+		}
 	}
 
 	return result.Config, nebulaPrivkeyPEM, newCreds, meta, nil

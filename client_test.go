@@ -50,6 +50,7 @@ func TestEnroll(t *testing.T) {
 	hostID := "foobar"
 	hostName := "foo host"
 	hostIP := "192.168.100.1"
+	oidcEmail := "demo@defined.net"
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
@@ -91,6 +92,9 @@ func TestEnroll(t *testing.T) {
 					ID:        hostID,
 					Name:      hostName,
 					IPAddress: hostIP,
+				},
+				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
+					Email: oidcEmail,
 				},
 			},
 		})
@@ -139,6 +143,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
+	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
@@ -377,6 +382,7 @@ func TestDoUpdate(t *testing.T) {
 	hostID := "foobar"
 	hostName := "foo host"
 	hostIP := "192.168.100.1"
+	oidcEmail := "demo@defined.net"
 
 	// This time sign the response with the correct CA key.
 	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
@@ -399,6 +405,9 @@ func TestDoUpdate(t *testing.T) {
 				ID:        hostID,
 				Name:      hostName,
 				IPAddress: hostIP,
+			},
+			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
+				Email: oidcEmail,
 			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
@@ -427,6 +436,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
+	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 
 }
 
@@ -727,7 +737,7 @@ func TestCommandResponse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, meta, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -739,6 +749,9 @@ func TestCommandResponse(t *testing.T) {
 	// make sure we got a config back
 	assert.NotEmpty(t, config)
 	assert.NotEmpty(t, pkey)
+
+	// no EndpointOIDC for standard host enrollments
+	assert.Nil(t, meta.EndpointOIDC)
 
 	// This time sign the response with the correct CA key.
 	responseToken := "abc123"
