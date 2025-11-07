@@ -388,6 +388,9 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 			Name:      result.Host.Name,
 			IPAddress: result.Host.IPAddress,
 		},
+		EndpointOIDC: ConfigEndpointOIDC{
+			Email: result.EndpointOIDCMeta.Email,
+		},
 	}
 
 	return result.Config, nebulaPrivkeyPEM, newCreds, meta, nil
