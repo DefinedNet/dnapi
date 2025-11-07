@@ -444,7 +444,6 @@ func TestDoUpdate_P256(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
-	oidcEmail := "demo@defined.net"
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
@@ -491,9 +490,6 @@ func TestDoUpdate_P256(t *testing.T) {
 					ID:        "quux",
 					Name:      "foo host",
 					IPAddress: "192.168.100.2",
-				},
-				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: oidcEmail,
 				},
 			},
 		})
