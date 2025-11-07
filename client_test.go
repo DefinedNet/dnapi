@@ -143,7 +143,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
-	assert.Equal(t, hostIP, meta.Host.IPAddress)
+	assert.Equal(t, oidcEmail, *meta.EndpointOIDC.Email)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
@@ -445,6 +445,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
+	assert.Equal(t, oidcEmail, *meta.EndpointOIDC.Email)
 
 }
 
