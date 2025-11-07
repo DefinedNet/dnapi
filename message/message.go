@@ -186,7 +186,7 @@ type HostHostMetadata struct {
 
 // HostEndpointOIDCMetadata is included in EnrollResponseData.
 type HostEndpointOIDCMetadata struct {
-	Email *string `json:"email"`
+	Email string `json:"email"`
 }
 
 // APIError represents a single error returned in an API error response.

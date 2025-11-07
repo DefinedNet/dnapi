@@ -50,6 +50,7 @@ func TestEnroll(t *testing.T) {
 	hostID := "foobar"
 	hostName := "foo host"
 	hostIP := "192.168.100.1"
+	oidcEmail := "demo@defined.net"
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
@@ -93,7 +94,7 @@ func TestEnroll(t *testing.T) {
 					IPAddress: hostIP,
 				},
 				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: nil,
+					Email: oidcEmail,
 				},
 			},
 		})
@@ -142,7 +143,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
-	assert.Nil(t, meta.EndpointOIDC.Email)
+	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
@@ -174,7 +175,6 @@ func TestDoUpdate(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
-	oidcEmail := "demo@defined.net"
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
@@ -221,9 +221,6 @@ func TestDoUpdate(t *testing.T) {
 					ID:        "quux",
 					Name:      "foo host",
 					IPAddress: "192.168.100.2",
-				},
-				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: &oidcEmail,
 				},
 			},
 		})
@@ -294,9 +291,6 @@ func TestDoUpdate(t *testing.T) {
 				Name:      "foo host",
 				IPAddress: "192.168.100.2",
 			},
-			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-				Email: &oidcEmail,
-			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
@@ -352,9 +346,6 @@ func TestDoUpdate(t *testing.T) {
 				Name:      "foo host",
 				IPAddress: "192.168.100.2",
 			},
-			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-				Email: &oidcEmail,
-			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
@@ -391,6 +382,7 @@ func TestDoUpdate(t *testing.T) {
 	hostID := "foobar"
 	hostName := "foo host"
 	hostIP := "192.168.100.1"
+	oidcEmail := "demo@defined.net"
 
 	// This time sign the response with the correct CA key.
 	ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
@@ -415,7 +407,7 @@ func TestDoUpdate(t *testing.T) {
 				IPAddress: hostIP,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-				Email: &oidcEmail,
+				Email: oidcEmail,
 			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
@@ -444,7 +436,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
-	assert.Equal(t, oidcEmail, *meta.EndpointOIDC.Email)
+	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 
 }
 
@@ -501,7 +493,7 @@ func TestDoUpdate_P256(t *testing.T) {
 					IPAddress: "192.168.100.2",
 				},
 				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: &oidcEmail,
+					Email: oidcEmail,
 				},
 			},
 		})
@@ -661,9 +653,6 @@ func TestDoUpdate_P256(t *testing.T) {
 				Name:      "foo host",
 				IPAddress: "192.168.100.2",
 			},
-			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-				Email: &oidcEmail,
-			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 		hashed := sha256.Sum256(rawRes)
@@ -699,7 +688,6 @@ func TestCommandResponse(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
-	oidcEmail := "demo@defined.net"
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
@@ -746,9 +734,6 @@ func TestCommandResponse(t *testing.T) {
 					ID:        "quux",
 					Name:      "foo host",
 					IPAddress: "192.168.100.2",
-				},
-				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: &oidcEmail,
 				},
 			},
 		})
@@ -805,7 +790,6 @@ func TestStreamCommandResponse(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
-	oidcEmail := "demo@defined.net"
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
@@ -852,9 +836,6 @@ func TestStreamCommandResponse(t *testing.T) {
 					ID:        "quux",
 					Name:      "foo host",
 					IPAddress: "192.168.100.2",
-				},
-				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: &oidcEmail,
 				},
 			},
 		})
@@ -935,7 +916,6 @@ func TestReauthenticate(t *testing.T) {
 	t.Parallel()
 
 	useragent := "testClient"
-	oidcEmail := "demo@defined.net"
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
@@ -982,9 +962,6 @@ func TestReauthenticate(t *testing.T) {
 					ID:        "quux",
 					Name:      "foo host",
 					IPAddress: "192.168.100.2",
-				},
-				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: &oidcEmail,
 				},
 			},
 		})
