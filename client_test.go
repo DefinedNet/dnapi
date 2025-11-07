@@ -50,7 +50,6 @@ func TestEnroll(t *testing.T) {
 	hostID := "foobar"
 	hostName := "foo host"
 	hostIP := "192.168.100.1"
-	oidcEmail := "demo@defined.net"
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
@@ -94,7 +93,7 @@ func TestEnroll(t *testing.T) {
 					IPAddress: hostIP,
 				},
 				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: &oidcEmail,
+					Email: nil,
 				},
 			},
 		})
@@ -143,7 +142,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
-	assert.Equal(t, oidcEmail, *meta.EndpointOIDC.Email)
+	assert.Nil(t, meta.EndpointOIDC.Email)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
