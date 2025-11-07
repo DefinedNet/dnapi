@@ -737,7 +737,7 @@ func TestCommandResponse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, meta, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -749,6 +749,9 @@ func TestCommandResponse(t *testing.T) {
 	// make sure we got a config back
 	assert.NotEmpty(t, config)
 	assert.NotEmpty(t, pkey)
+
+	// no EndpointOIDC for standard host enrollments
+	assert.Nil(t, meta.EndpointOIDC)
 
 	// This time sign the response with the correct CA key.
 	responseToken := "abc123"
