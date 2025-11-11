@@ -81,6 +81,7 @@ func (e *APIError) Unwrap() error {
 
 var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
 var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
+var ErrHostBlocked = fmt.Errorf("host is blocked")
 
 type ConfigMeta struct {
 	Org          ConfigOrg
@@ -181,10 +182,15 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
 	}
 
-	// Check for *only* an "invalid code" error returned by the API
 	if len(r.Errors) == 1 {
+		// Check for *only* an "invalid code" error returned by the API
 		if err := r.Errors[0]; err.Path == "code" && err.Code == "ERR_INVALID_VALUE" {
 			return nil, nil, nil, nil, &APIError{e: ErrInvalidCode, ReqID: reqID}
+		}
+
+		// Check for *only* a blocked host error returned by the API
+		if err := r.Errors[0]; err.Path == "" && err.Code == "ERR_HOST_BLOCKED" {
+			return nil, nil, nil, nil, &APIError{e: ErrHostBlocked, ReqID: reqID}
 		}
 	}
 
