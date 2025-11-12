@@ -130,6 +130,36 @@ type ReauthenticateResponse struct {
 	LoginURL string `json:"loginURL"`
 }
 
+// APIResponse is a standard format for the DN API. It does not apply to the DNClient API.
+type APIResponse[T any] struct {
+	Data   T         `json:"data"`
+	Errors APIErrors `json:"errors"`
+}
+
+// APIError represents a single error returned in an API error response.
+type APIError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Path    string `json:"path"` // may or may not be present
+}
+
+// APIErrors facilitates converting multiple API errors into a single Golang
+// error to be returned to callers.
+type APIErrors []APIError
+
+func (errs APIErrors) ToError() error {
+	if len(errs) == 0 {
+		return nil
+	}
+
+	s := make([]string, len(errs))
+	for i := range errs {
+		s[i] = errs[i].Message
+	}
+
+	return errors.New(strings.Join(s, ", "))
+}
+
 // EnrollEndpoint is the REST enrollment endpoint.
 const EnrollEndpoint = "/v2/enroll"
 
@@ -141,14 +171,6 @@ type EnrollRequest struct {
 	NebulaPubkeyP256   []byte    `json:"nebulaPubkeyP256"` // P256 (used for key exchange)
 	HostPubkeyP256     []byte    `json:"hostPubkeyP256"`   // P256 (used for signing)
 	Timestamp          time.Time `json:"timestamp"`
-}
-
-// EnrollResponse represents a response from the enrollment endpoint.
-type EnrollResponse struct {
-	// Only one of Data or Errors should be set in a response
-	Data EnrollResponseData `json:"data"`
-
-	Errors APIErrors `json:"errors"`
 }
 
 // EnrollResponseData is included in the EnrollResponse.
@@ -189,26 +211,27 @@ type HostEndpointOIDCMetadata struct {
 	Email string `json:"email"`
 }
 
-// APIError represents a single error returned in an API error response.
-type APIError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Path    string `json:"path"` // may or may not be present
+// PreAuthEndpoint is called when starting an OIDC auth flow.
+const PreAuthEndpoint = "/v1/endpoint-auth/preauth"
+
+type PreAuthData struct {
+	PollToken string `json:"pollToken"`
+	LoginURL  string `json:"loginURL"`
 }
 
-type APIErrors []APIError
+const EndpointAuthPoll = "/v1/endpoint-auth/poll"
 
-func (errs APIErrors) ToError() error {
-	if len(errs) == 0 {
-		return nil
-	}
+type EndpointAuthState string
 
-	s := make([]string, len(errs))
-	for i := range errs {
-		s[i] = errs[i].Message
-	}
+const (
+	EndpointAuthWaiting   EndpointAuthState = "WAITING"
+	EndpointAuthStarted   EndpointAuthState = "STARTED"
+	EndpointAuthCompleted EndpointAuthState = "COMPLETED"
+)
 
-	return errors.New(strings.Join(s, ", "))
+type EndpointAuthPollData struct {
+	Status         EndpointAuthState `json:"state"`
+	EnrollmentCode string            `json:"enrollmentCode"`
 }
 
 // NetworkCurve represents the network curve specified by the API.
@@ -235,38 +258,4 @@ func (nc *NetworkCurve) UnmarshalJSON(b []byte) error {
 	}
 
 	return nil
-}
-
-const PreAuthEndpoint = "/v1/endpoint-auth/preauth"
-
-type PreAuthResponse struct {
-	// Only one of Data or Errors should be set in a response
-	Data   PreAuthData `json:"data"`
-	Errors APIErrors   `json:"errors"`
-}
-
-type PreAuthData struct {
-	PollToken string `json:"pollToken"`
-	LoginURL  string `json:"loginURL"`
-}
-
-const EndpointAuthPoll = "/v1/endpoint-auth/poll"
-
-type EndpointAuthState string
-
-const (
-	EndpointAuthWaiting   EndpointAuthState = "WAITING"
-	EndpointAuthStarted   EndpointAuthState = "STARTED"
-	EndpointAuthCompleted EndpointAuthState = "COMPLETED"
-)
-
-type EndpointAuthPollResponse struct {
-	// Only one of Data or Errors should be set in a response
-	Data   EndpointAuthPollData `json:"data"`
-	Errors APIErrors            `json:"errors"`
-}
-
-type EndpointAuthPollData struct {
-	Status         EndpointAuthState `json:"state"`
-	EnrollmentCode string            `json:"enrollmentCode"`
 }
