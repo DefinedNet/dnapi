@@ -132,24 +132,36 @@ type ReauthenticateResponse struct {
 
 // APIResponse is a standard format for the DN API. It does not apply to the DNClient API.
 type APIResponse[T any] struct {
-	Data   T         `json:"data"`
-	Errors APIErrors `json:"errors"`
+	Data   T                 `json:"data"`
+	Errors APIResponseErrors `json:"errors"`
 }
 
-// APIError represents a single error returned in an API error response.
-type APIError struct {
+// APIResponseError represents a single error returned in an API error response.
+type APIResponseError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Path    string `json:"path"` // may or may not be present
 }
 
+// APIResponseErrors is used to parse errors but is not a Golang error itself.
+// It may or may not contain actual errors - if it doesn't, it should not be
+// converted to an error. This should not be returned from the dnapi package.
+type APIResponseErrors []APIResponseError
+
+func (m APIResponseErrors) Err() error {
+	if len(m) > 0 {
+		return APIErrors(m)
+	}
+	return nil
+}
+
 // APIErrors facilitates converting multiple API errors into a single Golang
 // error to be returned to callers.
-type APIErrors []APIError
+type APIErrors APIResponseErrors
 
-func (errs APIErrors) ToError() error {
-	if len(errs) == 0 {
-		return nil
+func (errs APIErrors) Error() string {
+	if len(errs) == 0 { // this shouldn't happen
+		panic("no errors")
 	}
 
 	s := make([]string, len(errs))
@@ -157,7 +169,7 @@ func (errs APIErrors) ToError() error {
 		s[i] = errs[i].Message
 	}
 
-	return errors.New(strings.Join(s, ", "))
+	return strings.Join(s, ", ")
 }
 
 // EnrollEndpoint is the REST enrollment endpoint.
@@ -219,7 +231,7 @@ type PreAuthData struct {
 	LoginURL  string `json:"loginURL"`
 }
 
-const EndpointAuthPoll = "/v1/endpoint-auth/poll"
+const AuthPollEndpoint = "/v1/endpoint-auth/poll"
 
 type EndpointAuthState string
 

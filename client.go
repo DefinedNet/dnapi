@@ -195,7 +195,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 	}
 
 	// Check for any errors returned by the API
-	if err := r.Errors.ToError(); err != nil {
+	if err := r.Errors.Err(); err != nil {
 		return nil, nil, nil, nil, &APIError{e: fmt.Errorf("unexpected error during enrollment: %v", err), ReqID: reqID}
 	}
 
@@ -514,12 +514,12 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			sc.err.Store(ErrInvalidCredentials)
 		default:
 			var errors struct {
-				Errors message.APIErrors
+				Errors message.APIResponseErrors
 			}
 			if err := json.Unmarshal(respBody, &errors); err != nil {
 				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
 			} else {
-				sc.err.Store(errors.Errors.ToError())
+				sc.err.Store(errors.Errors.Err())
 			}
 		}
 	}()
@@ -561,12 +561,12 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		return nil, ErrInvalidCredentials
 	default:
 		var errors struct {
-			Errors message.APIErrors
+			Errors message.APIResponseErrors
 		}
 		if err := json.Unmarshal(respBody, &errors); err != nil {
 			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
 		}
-		return nil, errors.Errors.ToError()
+		return nil, errors.Errors.Err()
 	}
 }
 
@@ -609,7 +609,7 @@ func callAPI[T any](ctx context.Context, c *Client, method string, endpoint stri
 	}
 
 	// Check for any errors returned by the API
-	if err := r.Errors.ToError(); err != nil {
+	if err := r.Errors.Err(); err != nil {
 		return nil, &APIError{e: err, ReqID: reqID}
 	}
 
@@ -698,7 +698,7 @@ func (c *Client) EndpointPreAuth(ctx context.Context) (*message.PreAuthData, err
 }
 
 func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollData, error) {
-	pollURL := fmt.Sprintf("%s?pollToken=%s", message.EndpointAuthPoll, url.QueryEscape(pollCode))
+	pollURL := fmt.Sprintf("%s?pollToken=%s", message.AuthPollEndpoint, url.QueryEscape(pollCode))
 	return callAPI[message.EndpointAuthPollData](ctx, c, "GET", pollURL, nil)
 }
 
