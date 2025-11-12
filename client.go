@@ -146,7 +146,7 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 		return nil, nil, nil, nil, err
 	}
 
-	enrollURL, err := url.JoinPath(c.dnServer, message.EnrollEndpoint)
+	enrollURL, err := urlPath(c.dnServer, message.EnrollEndpoint)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -480,7 +480,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	}
 	pbb := bytes.NewBuffer(postBody)
 
-	endpointV1URL, err := url.JoinPath(c.dnServer, message.EndpointV1)
+	endpointV1URL, err := urlPath(c.dnServer, message.EndpointV1)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +535,7 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		return nil, err
 	}
 
-	endpointV1URL, err := url.JoinPath(c.dnServer, message.EndpointV1)
+	endpointV1URL, err := urlPath(c.dnServer, message.EndpointV1)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +571,7 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 }
 
 func callAPI[T any](ctx context.Context, c *Client, method string, endpoint string, payload map[string]any) (*T, error) {
-	dest, err := url.JoinPath(c.dnServer, endpoint)
+	dest, err := urlPath(c.dnServer, endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -700,4 +700,19 @@ func (c *Client) EndpointPreAuth(ctx context.Context) (*message.PreAuthData, err
 func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollData, error) {
 	pollURL := fmt.Sprintf("%s?pollToken=%s", message.EndpointAuthPoll, url.QueryEscape(pollCode))
 	return callAPI[message.EndpointAuthPollData](ctx, c, "GET", pollURL, nil)
+}
+
+func urlPath(base, path string) (string, error) {
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid base: %s", err)
+	}
+
+	pathURL, err := url.Parse(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %s", err)
+	}
+
+	finalURL := baseURL.ResolveReference(pathURL)
+	return finalURL.String(), nil
 }

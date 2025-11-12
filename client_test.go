@@ -1119,7 +1119,7 @@ func TestDoOidcPoll(t *testing.T) {
 	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
 		return jsonMarshal(message.APIResponse[message.EndpointAuthPollData]{Data: message.EndpointAuthPollData{
 			Status:         message.EndpointAuthStarted,
-			EnrollmentCode: "",
+			EnrollmentCode: expectedCode,
 		}})
 	})
 
@@ -1127,8 +1127,8 @@ func TestDoOidcPoll(t *testing.T) {
 	defer cancel()
 	resp, err := client.EndpointAuthPoll(ctx, expectedCode)
 	require.NoError(t, err)
-	assert.Equal(t, resp.Status, message.EndpointAuthStarted)
-	assert.Equal(t, resp.EnrollmentCode, "")
+	assert.Equal(t, message.EndpointAuthStarted, resp.Status)
+	assert.Equal(t, expectedCode, resp.EnrollmentCode)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 
