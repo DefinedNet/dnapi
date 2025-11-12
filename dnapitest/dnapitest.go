@@ -275,6 +275,34 @@ func (s *Server) handlerDNClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+	case message.DoConfigUpdate:
+		var updateKeys message.DoConfigUpdateRequest
+		err = json.Unmarshal(msg.Value, &updateKeys)
+		if err != nil {
+			s.errors = append(s.errors, fmt.Errorf("failed to unmarshal DoUpdateRequest: %w", err))
+			http.Error(w, "failed to unmarshal DoUpdateRequest", http.StatusInternalServerError)
+			return
+		}
+
+		switch s.curve {
+		case message.NetworkCurve25519:
+			if err := s.SetEdPubkey(updateKeys.HostPubkeyEd25519); err != nil {
+				s.errors = append(s.errors, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case message.NetworkCurveP256:
+			if err := s.SetP256Pubkey(updateKeys.HostPubkeyP256); err != nil {
+				s.errors = append(s.errors, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		default:
+			s.errors = append(s.errors, fmt.Errorf("invalid curve"))
+			http.Error(w, "invalid curve", http.StatusInternalServerError)
+			return
+		}
+
 	case message.LongPollWait:
 		var longPoll message.LongPollWaitRequest
 		err = json.Unmarshal(msg.Value, &longPoll)
