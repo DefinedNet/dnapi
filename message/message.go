@@ -11,6 +11,7 @@ import (
 const (
 	CheckForUpdate  = "CheckForUpdate"
 	DoUpdate        = "DoUpdate"
+	DoConfigUpdate  = "DoConfigUpdate"
 	LongPollWait    = "LongPollWait"
 	CommandResponse = "CommandResponse"
 	Reauthenticate  = "Reauthenticate"
@@ -73,6 +74,24 @@ type DoUpdateRequest struct {
 
 // DoUpdateResponse is the response generated for a DoUpdate request.
 type DoUpdateResponse struct {
+	Config       []byte              `json:"config"`
+	Counter      uint                `json:"counter"`
+	Nonce        []byte              `json:"nonce"`
+	TrustedKeys  []byte              `json:"trustedKeys"`
+	Organization HostOrgMetadata     `json:"organization"`
+	Network      HostNetworkMetadata `json:"network"`
+	Host         HostHostMetadata    `json:"host"`
+}
+
+// DoConfigUpdateRequest is the request sent for a DoConfigUpdate request.
+type DoConfigUpdateRequest struct {
+	HostPubkeyEd25519 []byte `json:"edPubkeyPEM"`       // X25519 (used for signing)
+	HostPubkeyP256    []byte `json:"p256HostPubkeyPEM"` // P256 (used for signing)
+	Nonce             []byte `json:"nonce"`
+}
+
+// DoConfigUpdateResponse is the response generated for a DoConfigUpdate request.
+type DoConfigUpdateResponse struct {
 	Config       []byte              `json:"config"`
 	Counter      uint                `json:"counter"`
 	Nonce        []byte              `json:"nonce"`
