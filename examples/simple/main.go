@@ -28,12 +28,12 @@ func main() {
 	// initial enrollment example
 	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code)
 	if err != nil {
-		logger.WithError(err).Error("Failed to enroll")
+		logger.WithError(err).Fatal("Failed to enroll")
 	}
 
 	config, err = dnapi.InsertConfigPrivateKey(config, pkey)
 	if err != nil {
-		logger.WithError(err).Error("Failed to insert private key into config")
+		logger.WithError(err).Fatal("Failed to insert private key into config")
 	}
 
 	fmt.Printf(
@@ -70,6 +70,7 @@ func main() {
 			config, err = dnapi.InsertConfigPrivateKey(config, pkey)
 			if err != nil {
 				logger.WithError(err).Error("Failed to insert private key into config")
+				continue
 			}
 
 			creds = newCreds
