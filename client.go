@@ -570,6 +570,57 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 }
 
+func callAPI[T any](ctx context.Context, c *Client, method string, endpoint string, payload map[string]any) (*T, error) {
+	dest, err := url.JoinPath(c.dnServer, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var br io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal payload: %s", err)
+		}
+		br = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, dest, br)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	reqID := resp.Header.Get("X-Request-ID")
+
+	r := message.APIResponse[T]{}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &APIError{e: fmt.Errorf("error reading response body: %s", err), ReqID: reqID}
+	}
+
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+	}
+
+	// Check for any errors returned by the API
+	if err := r.Errors.ToError(); err != nil {
+		return nil, &APIError{e: err, ReqID: reqID}
+	}
+
+	// If we didn't detect an error in the response, but received a 4XX or 5XX status code, return error
+	if resp.StatusCode >= 400 {
+		return nil, &APIError{e: fmt.Errorf("received HTTP %d from API without error details\nbody: %s", resp.StatusCode, b), ReqID: reqID}
+	}
+
+	return &r.Data, nil
+}
+
 // StreamController is used for interacting with streaming requests to the API.
 //
 // When a streaming request is started in a background goroutine, a StreamController is returned to the caller to allow
@@ -643,76 +694,10 @@ func nonce() []byte {
 }
 
 func (c *Client) EndpointPreAuth(ctx context.Context) (*message.PreAuthData, error) {
-	dest, err := url.JoinPath(c.dnServer, message.PreAuthEndpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", dest, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	reqID := resp.Header.Get("X-Request-ID")
-
-	r := message.APIResponse[message.PreAuthData]{}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &APIError{e: fmt.Errorf("error reading response body: %s", err), ReqID: reqID}
-	}
-
-	if err := json.Unmarshal(b, &r); err != nil {
-		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
-	}
-
-	// Check for any errors returned by the API
-	if err := r.Errors.ToError(); err != nil {
-		return nil, &APIError{e: err, ReqID: reqID}
-	}
-
-	return &r.Data, nil
+	return callAPI[message.PreAuthData](ctx, c, "POST", message.PreAuthEndpoint, nil)
 }
 
 func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*message.EndpointAuthPollData, error) {
-	pollURL, err := url.JoinPath(c.dnServer, message.EndpointAuthPoll)
-	if err != nil {
-		return nil, err
-	}
-	pollURL = fmt.Sprintf("%s?pollToken=%s", pollURL, url.QueryEscape(pollCode))
-
-	req, err := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	reqID := resp.Header.Get("X-Request-ID")
-
-	r := message.APIResponse[message.EndpointAuthPollData]{}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &APIError{e: fmt.Errorf("error reading response body: %s", err), ReqID: reqID}
-	}
-
-	if err := json.Unmarshal(b, &r); err != nil {
-		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
-	}
-
-	// Check for any errors returned by the API
-	if err := r.Errors.ToError(); err != nil {
-		return nil, &APIError{e: err, ReqID: reqID}
-	}
-
-	return &r.Data, nil
+	pollURL := fmt.Sprintf("%s?pollToken=%s", message.EndpointAuthPoll, url.QueryEscape(pollCode))
+	return callAPI[message.EndpointAuthPollData](ctx, c, "GET", pollURL, nil)
 }
