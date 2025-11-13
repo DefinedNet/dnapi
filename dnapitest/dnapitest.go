@@ -72,7 +72,7 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.expectedRequests = s.expectedRequests[1:]
 		w.WriteHeader(expected.StatusCode())
 		_, _ = w.Write(expected.Respond(nil))
-	case message.EndpointAuthPoll:
+	case message.AuthPollEndpoint:
 		s.handlerDoOidcPoll(w, r)
 	default:
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))

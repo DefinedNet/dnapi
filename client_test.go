@@ -65,7 +65,7 @@ func TestEnroll(t *testing.T) {
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
 					Message: "failed to marshal test response config",
 				}},
@@ -149,7 +149,7 @@ func TestEnroll(t *testing.T) {
 	errorMsg := "invalid enrollment code"
 	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
 		return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-			Errors: message.APIErrors{{
+			Errors: message.APIResponseErrors{{
 				Code:    "ERR_INVALID_ENROLLMENT_CODE",
 				Message: errorMsg,
 			}},
@@ -194,7 +194,7 @@ func TestDoUpdate(t *testing.T) {
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
 					Message: "failed to marshal test response config",
 				}},
@@ -463,7 +463,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
 					Message: "failed to marshal test response config",
 				}},
@@ -557,7 +557,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		sig, err := nk.HostP256PrivateKey.Sign(rawRes)
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_SIGN_MESSAGE",
 					Message: "failed to sign message",
 				}},
@@ -601,7 +601,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		sig, err := ecdsa.SignASN1(rand.Reader, caPrivkey, hashed[:])
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_SIGN_MESSAGE",
 					Message: "failed to sign message",
 				}},
@@ -655,7 +655,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		sig, err := ecdsa.SignASN1(rand.Reader, caPrivkey, hashed[:])
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_SIGN_MESSAGE",
 					Message: "failed to sign message",
 				}},
@@ -703,7 +703,7 @@ func TestCommandResponse(t *testing.T) {
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
 					Message: "failed to marshal test response config",
 				}},
@@ -774,7 +774,7 @@ func TestCommandResponse(t *testing.T) {
 	errorMsg := "sample error"
 	ts.ExpectDNClientRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
 		return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-			Errors: message.APIErrors{{
+			Errors: message.APIResponseErrors{{
 				Code:    "ERR_INVALID_VALUE",
 				Message: errorMsg,
 			}},
@@ -808,7 +808,7 @@ func TestStreamCommandResponse(t *testing.T) {
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
 					Message: "failed to marshal test response config",
 				}},
@@ -885,7 +885,7 @@ func TestStreamCommandResponse(t *testing.T) {
 	errorMsg := "sample error"
 	ts.ExpectStreamingRequest(message.CommandResponse, http.StatusBadRequest, func(r message.RequestWrapper) []byte {
 		return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-			Errors: message.APIErrors{{
+			Errors: message.APIResponseErrors{{
 				Code:    "ERR_INVALID_VALUE",
 				Message: errorMsg,
 			}},
@@ -934,7 +934,7 @@ func TestReauthenticate(t *testing.T) {
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
-				Errors: message.APIErrors{{
+				Errors: message.APIResponseErrors{{
 					Code:    "ERR_FAILED_TO_MARSHAL_YAML",
 					Message: "failed to marshal test response config",
 				}},
@@ -1094,7 +1094,7 @@ func TestGetOidcPollCode(t *testing.T) {
 	//unhappy path
 	ts.ExpectAPIRequest(http.StatusInternalServerError, func(req any) []byte {
 		return jsonMarshal(message.APIResponse[message.PreAuthData]{
-			Errors: message.APIErrors{{
+			Errors: message.APIResponseErrors{{
 				Code:    "ERR_INTERNAL_SERVER_ERROR",
 				Message: "internal server error",
 			}},
