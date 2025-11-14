@@ -1156,3 +1156,59 @@ func TestDoOidcPoll(t *testing.T) {
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 }
+
+func TestDownloads(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	t.Cleanup(func() { ts.Close() })
+
+	// Happy path - successful downloads response
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
+		return []byte(downloadsResponse)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	resp, err := client.Downloads(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	// Verify DNClient downloads - this list is not exhaustive but tests some of the more common platforms.
+	require.NotNil(t, resp)
+	require.Contains(t, resp.DNClient, "0.8.4")
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/freebsd/amd64/dnclient", resp.DNClient["0.8.4"]["freebsd-amd64"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/freebsd/arm64/dnclient", resp.DNClient["0.8.4"]["freebsd-arm64"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/linux/amd64/dnclient", resp.DNClient["0.8.4"]["linux-amd64"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/linux/arm64/dnclient", resp.DNClient["0.8.4"]["linux-arm64"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/windows/amd64/DNClient-Desktop.msi", resp.DNClient["0.8.4"]["windows-amd64-desktop"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/windows/amd64/DNClient-Server.msi", resp.DNClient["0.8.4"]["windows-amd64-server"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/windows/arm64/DNClient-Desktop.msi", resp.DNClient["0.8.4"]["windows-arm64-desktop"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/windows/arm64/DNClient-Server.msi", resp.DNClient["0.8.4"]["windows-arm64-server"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/macos/dnclient", resp.DNClient["0.8.4"]["macos-universal-server"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/macos/DNClient-Server.dmg", resp.DNClient["0.8.4"]["macos-universal-server-dmg"])
+	assert.Equal(t, "https://dl.defined.net/290ff4b6/v0.8.4/macos/DNClient-Desktop.dmg", resp.DNClient["0.8.4"]["macos-universal-desktop"])
+
+	// Verify the latest release info
+	require.Contains(t, resp.DNClient, "latest")
+	require.Equal(t, resp.DNClient["latest"], resp.DNClient["0.8.4"])
+
+	// Verify mobile downloads
+	assert.Equal(t, "https://play.google.com/store/apps/details?id=net.defined.mobile_nebula", resp.Mobile.Android)
+	assert.Equal(t, "https://apps.apple.com/us/app/mobile-nebula/id1509587936", resp.Mobile.IOS)
+
+	// Verify container downloads
+	assert.Equal(t, "https://hub.docker.com/r/definednet/dnclient/", resp.Container.Docker)
+
+	// Verify version info
+	require.Contains(t, resp.VersionInfo.DNClient, "0.8.4")
+	assert.True(t, resp.VersionInfo.DNClient["0.8.4"].Latest)
+	assert.Equal(t, "2025-10-10", resp.VersionInfo.DNClient["0.8.4"].ReleaseDate)
+
+	// Verify latest versions
+	assert.Equal(t, "0.8.4", resp.VersionInfo.Latest.DNClient)
+	assert.Equal(t, "0.5.1", resp.VersionInfo.Latest.Mobile)
+}

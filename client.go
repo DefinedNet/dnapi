@@ -673,6 +673,11 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*messag
 	return d, err
 }
 
+func (c *Client) Downloads(ctx context.Context) (*message.DownloadsData, error) {
+	_, d, err := callAPI[message.DownloadsData](ctx, c, "GET", message.DownloadsEndpoint, nil)
+	return d, err
+}
+
 func urlPath(base, path string) (string, error) {
 	baseURL, err := url.Parse(base)
 	if err != nil {
