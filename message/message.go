@@ -246,6 +246,46 @@ type EndpointAuthPollData struct {
 	EnrollmentCode string            `json:"enrollmentCode"`
 }
 
+const DownloadsEndpoint = "/v1/downloads"
+
+type DownloadsData struct {
+	// DNClient maps versions to a map of platforms' download links.
+	DNClient map[string]map[string]string `json:"dnclient"`
+	// Mobile maps platforms to their download links (i.e. App Store / Play Store.)
+	Mobile DownloadsMobile `json:"mobile"`
+	// Links to container repositories like Docker
+	Container DownloadsContainers `json:"container"`
+
+	// VersionInfo contains information about past versions.
+	VersionInfo DownloadsVersionInfo `json:"versionInfo"`
+}
+
+type DownloadsVersionInfo struct {
+	// DNClient maps versions to their version info.
+	DNClient map[string]DNClientVersionInfo `json:"dnclient"`
+	// Latest returns the latest versions for each platform.
+	Latest DownloadsLatest `json:"latest"`
+}
+
+type DownloadsMobile struct {
+	Android string `json:"android"`
+	IOS     string `json:"ios"`
+}
+
+type DownloadsContainers struct {
+	Docker string `json:"docker"`
+}
+
+type DownloadsLatest struct {
+	DNClient string `json:"dnclient"`
+	Mobile   string `json:"mobile"`
+}
+
+type DNClientVersionInfo struct {
+	Latest      bool   `json:"latest"`
+	ReleaseDate string `json:"releaseDate"`
+}
+
 // NetworkCurve represents the network curve specified by the API.
 type NetworkCurve string
 

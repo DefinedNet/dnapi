@@ -74,6 +74,11 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(expected.Respond(nil))
 	case message.AuthPollEndpoint:
 		s.handlerDoOidcPoll(w, r)
+	case message.DownloadsEndpoint:
+		expected := s.expectedRequests[0]
+		s.expectedRequests = s.expectedRequests[1:]
+		w.WriteHeader(expected.StatusCode())
+		_, _ = w.Write(expected.Respond(nil))
 	default:
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))
 		http.NotFound(w, r)
