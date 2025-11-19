@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"time"
 
 	"github.com/DefinedNet/dnapi/keys"
@@ -484,33 +484,33 @@ func NebulaCfg(caCert []byte) []byte {
 	return nebulaCfg
 }
 
-func NebulaCACert() (*cert.NebulaCertificate, ed25519.PrivateKey) {
+func NebulaCACert() (cert.Certificate, ed25519.PrivateKey) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		panic(err)
 	}
 
-	nc := &cert.NebulaCertificate{
-		Details: cert.NebulaCertificateDetails{
-			Name:      "UnitTesting",
-			Groups:    []string{"testa", "testb"},
-			Ips:       []*net.IPNet{},
-			Subnets:   []*net.IPNet{},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now().Add(24 * time.Hour),
-			PublicKey: pub,
-			IsCA:      true,
-		},
+	nc := cert.TBSCertificate{
+		Version:        cert.Version1,
+		Curve:          cert.Curve_CURVE25519,
+		Name:           "UnitTesting",
+		Groups:         []string{"testa", "testb"},
+		Networks:       []netip.Prefix{},
+		UnsafeNetworks: []netip.Prefix{},
+		NotBefore:      time.Now(),
+		NotAfter:       time.Now().Add(24 * time.Hour),
+		PublicKey:      pub,
+		IsCA:           true,
 	}
-	err = nc.Sign(nc.Details.Curve, priv)
+	out, err := nc.Sign(nil, nc.Curve, priv)
 	if err != nil {
 		panic(err)
 	}
 
-	return nc, priv
+	return out, priv
 }
 
-func NebulaCACertP256() (*cert.NebulaCertificate, *ecdsa.PrivateKey) {
+func NebulaCACertP256() (cert.Certificate, *ecdsa.PrivateKey) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		panic(err)
@@ -526,23 +526,22 @@ func NebulaCACertP256() (*cert.NebulaCertificate, *ecdsa.PrivateKey) {
 	rawPriv := eKey.Bytes()
 	pub := eKey.PublicKey().Bytes()
 
-	nc := &cert.NebulaCertificate{
-		Details: cert.NebulaCertificateDetails{
-			Curve:     cert.Curve_P256,
-			Name:      "UnitTesting",
-			Groups:    []string{"testa", "testb"},
-			Ips:       []*net.IPNet{},
-			Subnets:   []*net.IPNet{},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now().Add(24 * time.Hour),
-			PublicKey: pub,
-			IsCA:      true,
-		},
+	nc := cert.TBSCertificate{
+		Version:        cert.Version1,
+		Curve:          cert.Curve_P256,
+		Name:           "UnitTesting",
+		Groups:         []string{"testa", "testb"},
+		Networks:       []netip.Prefix{},
+		UnsafeNetworks: []netip.Prefix{},
+		NotBefore:      time.Now(),
+		NotAfter:       time.Now().Add(24 * time.Hour),
+		PublicKey:      pub,
+		IsCA:           true,
 	}
-	err = nc.Sign(nc.Details.Curve, rawPriv)
+	out, err := nc.Sign(nil, nc.Curve, rawPriv)
 	if err != nil {
 		panic(err)
 	}
 
-	return nc, key
+	return out, key
 }
