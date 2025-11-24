@@ -108,7 +108,8 @@ type ConfigHost struct {
 }
 
 type ConfigEndpointOIDC struct {
-	Email string
+	Email     string
+	ExpiresAt *time.Time
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -185,7 +186,8 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 
 	if r.EndpointOIDCMeta != nil {
 		meta.EndpointOIDC = &ConfigEndpointOIDC{
-			Email: r.EndpointOIDCMeta.Email,
+			Email:     r.EndpointOIDCMeta.Email,
+			ExpiresAt: r.EndpointOIDCMeta.ExpiresAt,
 		}
 	}
 
@@ -369,7 +371,8 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 
 	if result.EndpointOIDCMeta != nil {
 		meta.EndpointOIDC = &ConfigEndpointOIDC{
-			Email: result.EndpointOIDCMeta.Email,
+			Email:     result.EndpointOIDCMeta.Email,
+			ExpiresAt: result.EndpointOIDCMeta.ExpiresAt,
 		}
 	}
 

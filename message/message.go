@@ -220,7 +220,8 @@ type HostHostMetadata struct {
 
 // HostEndpointOIDCMetadata is included in EnrollResponseData.
 type HostEndpointOIDCMetadata struct {
-	Email string `json:"email"`
+	Email     string     `json:"email"`
+	ExpiresAt *time.Time `json:"expiresAt"`
 }
 
 // PreAuthEndpoint is called when starting an OIDC auth flow.
