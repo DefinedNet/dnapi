@@ -51,6 +51,7 @@ func TestEnroll(t *testing.T) {
 	hostName := "foo host"
 	hostIP := "192.168.100.1"
 	oidcEmail := "demo@defined.net"
+	oidcExpiresAt := time.Now()
 	counter := uint(5)
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalToPEM()
@@ -94,7 +95,8 @@ func TestEnroll(t *testing.T) {
 					IPAddress: hostIP,
 				},
 				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-					Email: oidcEmail,
+					Email:     oidcEmail,
+					ExpiresAt: &oidcExpiresAt,
 				},
 			},
 		})
@@ -144,6 +146,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
+	assert.WithinDuration(t, oidcExpiresAt, *meta.EndpointOIDC.ExpiresAt, 1*time.Second)
 
 	// Test error handling
 	errorMsg := "invalid enrollment code"
@@ -407,7 +410,8 @@ func TestDoUpdate(t *testing.T) {
 				IPAddress: hostIP,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
-				Email: oidcEmail,
+				Email:     oidcEmail,
+				ExpiresAt: nil,
 			},
 		}
 		rawRes := jsonMarshal(newConfigResponse)
@@ -437,6 +441,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, hostIP, meta.Host.IPAddress)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
+	assert.Nil(t, meta.EndpointOIDC.ExpiresAt)
 
 }
 
