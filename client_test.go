@@ -1217,3 +1217,16 @@ func TestDownloads(t *testing.T) {
 	assert.Equal(t, "0.8.4", resp.VersionInfo.Latest.DNClient)
 	assert.Equal(t, "0.5.1", resp.VersionInfo.Latest.Mobile)
 }
+
+func TestNebulaPemBanners(t *testing.T) {
+	t.SkipNow() //todo this is correct for 25519 but not p256. Once this test passes, we can lean on Nebula's implementations.
+	const NebulaECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
+	const NebulaEd25519PublicKeyBanner = "NEBULA ED25519 PUBLIC KEY"
+	ca, _ := dnapitest.NebulaCACert()
+	pub := ca.MarshalPublicKeyPEM()
+	assert.Contains(t, string(pub), NebulaEd25519PublicKeyBanner)
+
+	ca, _ = dnapitest.NebulaCACertP256()
+	pub = ca.MarshalPublicKeyPEM()
+	assert.Contains(t, string(pub), NebulaECDSAP256PublicKeyBanner)
+}
