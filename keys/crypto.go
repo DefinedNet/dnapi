@@ -150,7 +150,7 @@ func newP256Keypair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
 	return privkey.Public().(*ecdsa.PublicKey), privkey, nil
 }
 
-// newNebulaX25519KeypairPEM returns a new Nebula key-agreement keypair (ED25519) in PEM format.
+// newNebulaX25519KeypairPEM returns a new Nebula key-agreement keypair (Ed25519) in PEM format.
 func newNebulaX25519KeypairPEM() ([]byte, []byte, error) {
 	pubkey, privkey, err := newX25519Keypair()
 	if err != nil {
