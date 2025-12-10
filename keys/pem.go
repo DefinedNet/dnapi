@@ -7,15 +7,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+
+	"github.com/slackhq/nebula/cert"
 )
 
 const HostEd25519PublicKeyBanner = "DEFINED HOST ED25519 PUBLIC KEY"
 const HostEd25519PrivateKeyBanner = "DEFINED HOST ED25519 PRIVATE KEY"
 const HostP256PublicKeyBanner = "DEFINED HOST P256 PUBLIC KEY"
 const HostP256PrivateKeyBanner = "DEFINED HOST P256 PRIVATE KEY"
-
-const NebulaECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
-const NebulaEd25519PublicKeyBanner = "NEBULA ED25519 PUBLIC KEY"
 
 func MarshalHostEd25519PublicKey(k ed25519.PublicKey) ([]byte, error) {
 	b, err := x509.MarshalPKIXPublicKey(k)
@@ -163,15 +162,18 @@ func UnmarshalTrustedKey(b []byte) (TrustedKey, []byte, error) {
 		return nil, r, fmt.Errorf("input did not contain a valid PEM encoded block")
 	}
 
+	// we could use Nebula's implementation here, but we want to make sure we only see these specific banners.
 	switch k.Type {
-	case NebulaECDSAP256PublicKeyBanner:
+	case cert.ECDSAP256PublicKeyBanner:
 		if len(k.Bytes) != 65 {
 			return nil, r, fmt.Errorf("key was not 65 bytes, is invalid P256 public key")
 		}
-
-		x, y := elliptic.Unmarshal(elliptic.P256(), k.Bytes)
-		return P256TrustedKey{&ecdsa.PublicKey{X: x, Y: y, Curve: elliptic.P256()}}, r, nil
-	case NebulaEd25519PublicKeyBanner:
+		pk, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), k.Bytes)
+		if err != nil {
+			return nil, r, fmt.Errorf("failed to parse public key: %s", err)
+		}
+		return P256TrustedKey{pk}, r, nil
+	case cert.Ed25519PublicKeyBanner:
 		if len(k.Bytes) != ed25519.PublicKeySize {
 			return nil, r, fmt.Errorf("key was not 32 bytes, is invalid ed25519 public key")
 		}
