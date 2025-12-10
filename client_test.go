@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -78,7 +77,7 @@ func TestEnroll(t *testing.T) {
 				HostID:      hostID,
 				Counter:     counter,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
 				Organization: message.HostOrgMetadata{
 					ID:   orgID,
 					Name: orgName,
@@ -209,7 +208,7 @@ func TestDoUpdate(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -278,7 +277,7 @@ func TestDoUpdate(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     2,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+			TrustedKeys: ca.MarshalPublicKeyPEM(),
 			Organization: message.HostOrgMetadata{
 				ID:   "foobaz",
 				Name: "foobar's foo org",
@@ -333,7 +332,7 @@ func TestDoUpdate(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     0,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+			TrustedKeys: ca.MarshalPublicKeyPEM(),
 			Organization: message.HostOrgMetadata{
 				ID:   "foobaz",
 				Name: "foobar's foo org",
@@ -393,7 +392,7 @@ func TestDoUpdate(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+			TrustedKeys: ca.MarshalPublicKeyPEM(),
 			Organization: message.HostOrgMetadata{
 				ID:   orgID,
 				Name: orgName,
@@ -480,7 +479,7 @@ func TestDoUpdate_P256(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -638,7 +637,7 @@ func TestDoUpdate_P256(t *testing.T) {
 			Config:      dnapitest.NebulaCfg(caPEM),
 			Counter:     3,
 			Nonce:       dnapitest.GetNonce(r),
-			TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+			TrustedKeys: ca.MarshalPublicKeyPEM(),
 			Organization: message.HostOrgMetadata{
 				ID:   "foobaz",
 				Name: "foobar's foo org",
@@ -720,7 +719,7 @@ func TestCommandResponse(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -825,7 +824,7 @@ func TestStreamCommandResponse(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -951,7 +950,7 @@ func TestReauthenticate(t *testing.T) {
 				HostID:      "foobar",
 				Counter:     1,
 				Config:      cfg,
-				TrustedKeys: marshalCAPublicKey(ca.Curve(), ca.PublicKey()),
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
 				Organization: message.HostOrgMetadata{
 					ID:   "foobaz",
 					Name: "foobar's foo org",
@@ -1060,17 +1059,6 @@ func TestOverrideTimeout(t *testing.T) {
 	defer cancel()
 	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-}
-
-func marshalCAPublicKey(curve cert.Curve, pubkey []byte) []byte {
-	switch curve {
-	case cert.Curve_CURVE25519:
-		return pem.EncodeToMemory(&pem.Block{Type: keys.NebulaEd25519PublicKeyBanner, Bytes: pubkey})
-	case cert.Curve_P256:
-		return pem.EncodeToMemory(&pem.Block{Type: keys.NebulaECDSAP256PublicKeyBanner, Bytes: pubkey})
-	default:
-		panic("unsupported curve")
-	}
 }
 
 func TestGetOidcPollCode(t *testing.T) {
@@ -1219,7 +1207,6 @@ func TestDownloads(t *testing.T) {
 }
 
 func TestNebulaPemBanners(t *testing.T) {
-	t.SkipNow() //todo this is correct for 25519 but not p256. Once this test passes, we can lean on Nebula's implementations.
 	const NebulaECDSAP256PublicKeyBanner = "NEBULA ECDSA P256 PUBLIC KEY"
 	const NebulaEd25519PublicKeyBanner = "NEBULA ED25519 PUBLIC KEY"
 	ca, _ := dnapitest.NebulaCACert()

@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/pem"
 	"fmt"
+
+	"github.com/slackhq/nebula/cert"
 )
 
 // TrustedKey is an interface used to generically verify signatures returned
@@ -42,7 +44,7 @@ func (key Ed25519TrustedKey) Unwrap() any {
 }
 
 func (key Ed25519TrustedKey) MarshalPEM() ([]byte, error) {
-	return pem.EncodeToMemory(&pem.Block{Type: NebulaEd25519PublicKeyBanner, Bytes: key.PublicKey}), nil
+	return pem.EncodeToMemory(&pem.Block{Type: cert.Ed25519PublicKeyBanner, Bytes: key.PublicKey}), nil
 }
 
 // P256TrustedKey is the P256 implementation of TrustedKey.
@@ -61,7 +63,7 @@ func (key P256TrustedKey) Unwrap() any {
 
 func (key P256TrustedKey) MarshalPEM() ([]byte, error) {
 	b := elliptic.Marshal(elliptic.P256(), key.X, key.Y)
-	return pem.EncodeToMemory(&pem.Block{Type: NebulaECDSAP256PublicKeyBanner, Bytes: b}), nil
+	return pem.EncodeToMemory(&pem.Block{Type: cert.ECDSAP256PublicKeyBanner, Bytes: b}), nil
 }
 
 // TrustedKeysToPEM converts a slice of TrustedKey to a PEM-encoded byte slice.
