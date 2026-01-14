@@ -306,22 +306,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
 	}
-	resultWrapper := message.SignedResponseWrapper{}
-	err = json.Unmarshal(resp, &resultWrapper)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
-	}
 
 	// Verify the signature
-	valid := false
-	for _, caPubkey := range creds.TrustedKeys {
-		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return nil, nil, nil, nil, fmt.Errorf("failed to verify signed API result")
+	resultWrapper, err := verifySignature(resp, creds)
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	// Consume the verified message
@@ -379,6 +368,130 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 	return result.Config, nebulaPrivkeyPEM, newCreds, meta, nil
 }
 
+// DoConfigUpdate sends a signed message to the DNClient API to fetch the new configuration update. During this call new keys
+// are generated for DNClient API communication. If the API response is successful, the new configuration
+// is returned along with the new DNClient API credentials and a meta object.
+//
+// See dnapi.InsertConfigPrivateKey and dnapi.InsertConfigCert for how to insert the old Nebula cert/private key into the configuration.
+func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]byte, *keys.Credentials, *ConfigMeta, error) {
+	// Rotate key
+	var hostPrivkey keys.PrivateKey // ECDSA
+
+	newKeys, err := keys.New()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to generate new keys: %s", err)
+	}
+
+	msg := message.DoConfigUpdateRequest{
+		Nonce: nonce(),
+	}
+
+	// Set the correct keypair based on the current private key type
+	switch creds.PrivateKey.Unwrap().(type) {
+	case ed25519.PrivateKey:
+		hostPubkeyPEM, err := newKeys.HostEd25519PublicKey.MarshalPEM()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to marshal Ed25519 public key: %s", err)
+		}
+		hostPrivkey = newKeys.HostEd25519PrivateKey
+		msg.HostPubkeyEd25519 = hostPubkeyPEM
+	case *ecdsa.PrivateKey:
+		hostPubkeyPEM, err := newKeys.HostP256PublicKey.MarshalPEM()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to marshal P256 public key: %s", err)
+		}
+		hostPrivkey = newKeys.HostP256PrivateKey
+		msg.HostPubkeyP256 = hostPubkeyPEM
+	}
+
+	blob, err := json.Marshal(msg)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	// Make API call
+	resp, err := c.postDNClient(ctx, message.DoConfigUpdate, blob, creds.HostID, creds.Counter, creds.PrivateKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
+	}
+
+	// Verify the signature
+	resultWrapper, err := verifySignature(resp, creds)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Consume the verified message
+	result := message.DoConfigUpdateResponse{}
+	err = json.Unmarshal(resultWrapper.Data.Message, &result)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to unmarshal response (%s): %s", resultWrapper.Data.Message, err)
+	}
+
+	// Verify the nonce
+	if !bytes.Equal(result.Nonce, msg.Nonce) {
+		return nil, nil, nil, fmt.Errorf("nonce mismatch between request (%s) and response (%s)", msg.Nonce, result.Nonce)
+	}
+
+	// Verify the counter
+	if result.Counter <= creds.Counter {
+		return nil, nil, nil, fmt.Errorf("counter in request (%d) should be less than counter in response (%d)", creds.Counter, result.Counter)
+	}
+
+	trustedKeys, err := keys.TrustedKeysFromPEM(result.TrustedKeys)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to load trusted keys from bundle: %s", err)
+	}
+
+	newCreds := &keys.Credentials{
+		HostID:      creds.HostID,
+		Counter:     result.Counter,
+		PrivateKey:  hostPrivkey,
+		TrustedKeys: trustedKeys,
+	}
+
+	meta := &ConfigMeta{
+		Org: ConfigOrg{
+			ID:   result.Organization.ID,
+			Name: result.Organization.Name,
+		},
+		Network: ConfigNetwork{
+			ID:   result.Network.ID,
+			Name: result.Network.Name,
+		},
+		Host: ConfigHost{
+			ID:        result.Host.ID,
+			Name:      result.Host.Name,
+			IPAddress: result.Host.IPAddress,
+		},
+	}
+
+	return result.Config, newCreds, meta, nil
+}
+
+// verifySignature is a helper function that takes in an API call repsonse message and
+// ensures it is signed by a trusted key. It returns the JSON unmarshalled response section
+// if the message is valid JSON and the signature is trusted, otherwise it returns an error.
+func verifySignature(resp []byte, creds keys.Credentials) (message.SignedResponseWrapper, error) {
+	resultWrapper := message.SignedResponseWrapper{}
+	err := json.Unmarshal(resp, &resultWrapper)
+	if err != nil {
+		return message.SignedResponseWrapper{}, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
+	}
+
+	valid := false
+	for _, caPubkey := range creds.TrustedKeys {
+		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return message.SignedResponseWrapper{}, fmt.Errorf("failed to verify signed API result")
+	}
+	return resultWrapper, nil
+}
+
 func (c *Client) CommandResponse(ctx context.Context, creds keys.Credentials, responseToken string, response any) error {
 	value, err := json.Marshal(message.CommandResponseRequest{
 		ResponseToken: responseToken,
@@ -414,22 +527,9 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 		return nil, err
 	}
 
-	resultWrapper := message.SignedResponseWrapper{}
-	err = json.Unmarshal(resp, &resultWrapper)
+	resultWrapper, err := verifySignature(resp, creds)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
-	}
-
-	// Verify the signature
-	valid := false
-	for _, caPubkey := range creds.TrustedKeys {
-		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return nil, fmt.Errorf("failed to verify signed API result")
+		return nil, err
 	}
 
 	var response message.ReauthenticateResponse
