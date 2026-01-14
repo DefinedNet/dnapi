@@ -52,7 +52,7 @@ func InsertConfigCert(config []byte, cert []byte) ([]byte, error) {
 	return yaml.Marshal(y)
 }
 
-// FetchConfigPrivateKey takes a Nebula YAML, finds and returns its contained Nebula PEM-formatted private key,
+// FetchConfigPrivateKeyAndCert takes a Nebula YAML, finds and returns its contained Nebula PEM-formatted private key,
 // the Nebula PEM-formatted host cert, or an error.
 func FetchConfigPrivateKeyAndCert(config []byte) ([]byte, []byte, error) {
 	var y map[any]any

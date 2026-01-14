@@ -304,22 +304,11 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
 	}
-	resultWrapper := message.SignedResponseWrapper{}
-	err = json.Unmarshal(resp, &resultWrapper)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
-	}
 
 	// Verify the signature
-	valid := false
-	for _, caPubkey := range creds.TrustedKeys {
-		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return nil, nil, nil, nil, fmt.Errorf("failed to verify signed API result")
+	resultWrapper, err := verifySignature(resp, creds)
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	// Consume the verified message
@@ -422,22 +411,11 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
 	}
-	resultWrapper := message.SignedResponseWrapper{}
-	err = json.Unmarshal(resp, &resultWrapper)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
-	}
 
 	// Verify the signature
-	valid := false
-	for _, caPubkey := range creds.TrustedKeys {
-		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return nil, nil, nil, fmt.Errorf("failed to verify signed API result")
+	resultWrapper, err := verifySignature(resp, creds)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	// Consume the verified message
@@ -487,6 +465,30 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 
 	return result.Config, newCreds, meta, nil
 }
+
+// verifySignature is a helper function that takes in an API call repsonse message and
+// ensures it is signed by a trusted key. It returns the JSON unmarshalled response section
+// if the message is valid JSON and the signature is trusted, otherwise it returns an error.
+func verifySignature(resp []byte, creds keys.Credentials) (message.SignedResponseWrapper, error) {
+	resultWrapper := message.SignedResponseWrapper{}
+	err := json.Unmarshal(resp, &resultWrapper)
+	if err != nil {
+		return message.SignedResponseWrapper{}, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
+	}
+
+	valid := false
+	for _, caPubkey := range creds.TrustedKeys {
+		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return message.SignedResponseWrapper{}, fmt.Errorf("failed to verify signed API result")
+	}
+	return resultWrapper, nil
+}
+
 func (c *Client) CommandResponse(ctx context.Context, creds keys.Credentials, responseToken string, response any) error {
 	value, err := json.Marshal(message.CommandResponseRequest{
 		ResponseToken: responseToken,
@@ -522,22 +524,9 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 		return nil, err
 	}
 
-	resultWrapper := message.SignedResponseWrapper{}
-	err = json.Unmarshal(resp, &resultWrapper)
+	resultWrapper, err := verifySignature(resp, creds)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal signed response wrapper: %s", err)
-	}
-
-	// Verify the signature
-	valid := false
-	for _, caPubkey := range creds.TrustedKeys {
-		if caPubkey.Verify(resultWrapper.Data.Message, resultWrapper.Data.Signature) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return nil, fmt.Errorf("failed to verify signed API result")
+		return nil, err
 	}
 
 	var response message.ReauthenticateResponse
