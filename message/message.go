@@ -228,13 +228,15 @@ type HostNetworkMetadata struct {
 	Name  string       `json:"name"`
 	Curve NetworkCurve `json:"curve"`
 	CIDR  string       `json:"cidr"`
+	CIDRs []string     `json:"cidrs"`
 }
 
 // HostHostMetadata is included in EnrollResponseData.
 type HostHostMetadata struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	IPAddress string `json:"ipAddress"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	IPAddress   string   `json:"ipAddress"`
+	IPAddresses []string `json:"ipAddresses"`
 }
 
 // HostEndpointOIDCMetadata is included in EnrollResponseData.
