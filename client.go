@@ -102,14 +102,25 @@ type ConfigNetwork struct {
 }
 
 type ConfigHost struct {
-	ID        string
-	Name      string
-	IPAddress string
+	ID          string
+	Name        string
+	IPAddresses []string
 }
 
 type ConfigEndpointOIDC struct {
 	Email     string
 	ExpiresAt *time.Time
+}
+
+// mergeIPAddresses returns the plural field if populated, otherwise wraps the singular value.
+func mergeIPAddresses(plural []string, singular string) []string {
+	if len(plural) > 0 {
+		return plural
+	}
+	if singular != "" {
+		return []string{singular}
+	}
+	return nil
 }
 
 // Enroll issues an enrollment request against the REST API using the given enrollment code, passing along a locally
@@ -178,9 +189,9 @@ func (c *Client) Enroll(ctx context.Context, logger logrus.FieldLogger, code str
 			Name: r.Network.Name,
 		},
 		Host: ConfigHost{
-			ID:        r.HostID,
-			Name:      r.Host.Name,
-			IPAddress: r.Host.IPAddress,
+			ID:          r.HostID,
+			Name:        r.Host.Name,
+			IPAddresses: mergeIPAddresses(r.Host.IPAddresses, r.Host.IPAddress),
 		},
 	}
 
@@ -352,9 +363,9 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 			Name: result.Network.Name,
 		},
 		Host: ConfigHost{
-			ID:        result.Host.ID,
-			Name:      result.Host.Name,
-			IPAddress: result.Host.IPAddress,
+			ID:          result.Host.ID,
+			Name:        result.Host.Name,
+			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
 		},
 	}
 
@@ -460,9 +471,9 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 			Name: result.Network.Name,
 		},
 		Host: ConfigHost{
-			ID:        result.Host.ID,
-			Name:      result.Host.Name,
-			IPAddress: result.Host.IPAddress,
+			ID:          result.Host.ID,
+			Name:        result.Host.Name,
+			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
 		},
 	}
 
