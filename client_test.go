@@ -444,6 +444,123 @@ func TestDoUpdate(t *testing.T) {
 
 }
 
+func TestDoConfigUpdate(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, caPrivkey := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	code := "foobar"
+	ts.ExpectEnrollment(code, message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{
+			"pki": m{"ca": string(caPEM)},
+		})
+		require.NoError(t, err)
+
+		return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
+				Organization: message.HostOrgMetadata{
+					ID:   "foobaz",
+					Name: "foobar's foo org",
+				},
+				Network: message.HostNetworkMetadata{
+					ID:    "qux",
+					Name:  "the best network",
+					Curve: message.NetworkCurve25519,
+					CIDR:  "192.168.100.0/24",
+				},
+				Host: message.HostHostMetadata{
+					ID:        "quux",
+					Name:      "foo host",
+					IPAddress: "192.168.100.2",
+				},
+			},
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code)
+	require.NoError(t, err)
+
+	orgID := "foobaz"
+	orgName := "foobar's foo org"
+	netID := "qux"
+	netName := "the best network"
+	hostID := "foobar"
+	hostName := "foo host"
+	hostIP := "192.168.100.1"
+	oidcEmail := "demo@defined.net"
+	oidcExpiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+
+	ts.ExpectDNClientRequest(message.DoConfigUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+		newConfigResponse := message.DoConfigUpdateResponse{
+			Config:      dnapitest.NebulaCfg(caPEM),
+			Counter:     2,
+			Nonce:       dnapitest.GetNonce(r),
+			TrustedKeys: ca.MarshalPublicKeyPEM(),
+			Organization: message.HostOrgMetadata{
+				ID:   orgID,
+				Name: orgName,
+			},
+			Network: message.HostNetworkMetadata{
+				ID:    netID,
+				Name:  netName,
+				Curve: message.NetworkCurve25519,
+				CIDR:  "192.168.100.0/24",
+			},
+			Host: message.HostHostMetadata{
+				ID:        hostID,
+				Name:      hostName,
+				IPAddress: hostIP,
+			},
+			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
+				Email:     oidcEmail,
+				ExpiresAt: &oidcExpiresAt,
+			},
+		}
+		rawRes := jsonMarshal(newConfigResponse)
+
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: ed25519.Sign(caPrivkey, rawRes),
+			},
+		})
+	})
+
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, meta, err := c.DoConfigUpdate(ctx, *creds)
+	require.NoError(t, err)
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+
+	assert.Equal(t, orgID, meta.Org.ID)
+	assert.Equal(t, orgName, meta.Org.Name)
+	assert.Equal(t, netID, meta.Network.ID)
+	assert.Equal(t, netName, meta.Network.Name)
+	assert.Equal(t, hostID, meta.Host.ID)
+	assert.Equal(t, hostName, meta.Host.Name)
+	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
+	require.NotNil(t, meta.EndpointOIDC)
+	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
+	require.NotNil(t, meta.EndpointOIDC.ExpiresAt)
+	assert.WithinDuration(t, oidcExpiresAt, *meta.EndpointOIDC.ExpiresAt, time.Second)
+}
+
 func TestDoUpdate_P256(t *testing.T) {
 	t.Parallel()
 
