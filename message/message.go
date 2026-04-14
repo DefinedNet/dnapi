@@ -93,13 +93,14 @@ type DoConfigUpdateRequest struct {
 
 // DoConfigUpdateResponse is the response generated for a DoConfigUpdate request.
 type DoConfigUpdateResponse struct {
-	Config       []byte              `json:"config"`
-	Counter      uint                `json:"counter"`
-	Nonce        []byte              `json:"nonce"`
-	TrustedKeys  []byte              `json:"trustedKeys"`
-	Organization HostOrgMetadata     `json:"organization"`
-	Network      HostNetworkMetadata `json:"network"`
-	Host         HostHostMetadata    `json:"host"`
+	Config           []byte                    `json:"config"`
+	Counter          uint                      `json:"counter"`
+	Nonce            []byte                    `json:"nonce"`
+	TrustedKeys      []byte                    `json:"trustedKeys"`
+	Organization     HostOrgMetadata           `json:"organization"`
+	Network          HostNetworkMetadata       `json:"network"`
+	Host             HostHostMetadata          `json:"host"`
+	EndpointOIDCMeta *HostEndpointOIDCMetadata `json:"endpointOIDC"`
 }
 
 // LongPollWaitResponseWrapper contains a response to LongPollWait inside "data."

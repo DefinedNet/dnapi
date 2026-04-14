@@ -477,6 +477,13 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 		},
 	}
 
+	if result.EndpointOIDCMeta != nil {
+		meta.EndpointOIDC = &ConfigEndpointOIDC{
+			Email:     result.EndpointOIDCMeta.Email,
+			ExpiresAt: result.EndpointOIDCMeta.ExpiresAt,
+		}
+	}
+
 	return result.Config, newCreds, meta, nil
 }
 
