@@ -3,7 +3,6 @@ module github.com/DefinedNet/dnapi
 go 1.25
 
 require (
-	github.com/sirupsen/logrus v1.9.4
 	github.com/slackhq/nebula v1.10.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.47.0

@@ -4,11 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/DefinedNet/dnapi"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -22,18 +22,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := logrus.New()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	c := dnapi.NewClient("api-example/1.0", *server)
 
 	// initial enrollment example
 	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code)
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to enroll")
+		logger.Error("Failed to enroll", "error", err)
+		os.Exit(1)
 	}
 
 	config, err = dnapi.InsertConfigPrivateKey(config, pkey)
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to insert private key into config")
+		logger.Error("Failed to insert private key into config", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf(
@@ -53,7 +55,7 @@ func main() {
 		// check for an update and perform the update if available
 		updateAvailable, err := c.CheckForUpdate(context.Background(), *creds)
 		if err != nil {
-			logger.WithError(err).Error("Failed to check for update")
+			logger.Error("Failed to check for update", "error", err)
 			continue
 		}
 
@@ -63,13 +65,13 @@ func main() {
 			// this makes it less obvious to the caller that they need to save the new credentials to disk
 			config, pkey, newCreds, meta, err := c.DoUpdate(context.Background(), *creds)
 			if err != nil {
-				logger.WithError(err).Error("Failed to perform update")
+				logger.Error("Failed to perform update", "error", err)
 				continue
 			}
 
 			config, err = dnapi.InsertConfigPrivateKey(config, pkey)
 			if err != nil {
-				logger.WithError(err).Error("Failed to insert private key into config")
+				logger.Error("Failed to insert private key into config", "error", err)
 				continue
 			}
 
