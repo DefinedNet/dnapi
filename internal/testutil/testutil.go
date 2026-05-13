@@ -1,37 +1,34 @@
 package testutil
 
 import (
-	"io/ioutil"
+	"io"
+	"log/slog"
 	"os"
-
-	"github.com/sirupsen/logrus"
 )
 
-// NewTestLogger returns a *logrus.Logger struct configured for testing (e.g. end-to-end tests, unit tests, etc.)
-func NewTestLogger() *logrus.Logger {
-	l := logrus.New()
-	l.SetFormatter(&logrus.JSONFormatter{
-		DisableTimestamp: true,
-		FieldMap: logrus.FieldMap{
-			logrus.FieldKeyMsg: "message",
-		},
-	})
+// NewTestLogger returns a *slog.Logger configured for testing (e.g.
+// end-to-end tests, unit tests, etc.). Set the TEST_LOGS environment
+// variable to 1/2/3 to raise the verbosity from info to debug/trace.
+func NewTestLogger() *slog.Logger {
+	level := slog.LevelInfo
+	out := io.Discard
 
-	v := os.Getenv("TEST_LOGS")
-	if v == "" {
-		l.SetOutput(ioutil.Discard)
-		return l
-	}
-
-	switch v {
+	switch os.Getenv("TEST_LOGS") {
+	case "":
+		// Keep the discard writer and info level default.
 	case "1":
-		// This is the default level but we are being explicit
-		l.SetLevel(logrus.InfoLevel)
+		out = os.Stdout
 	case "2":
-		l.SetLevel(logrus.DebugLevel)
+		out = os.Stdout
+		level = slog.LevelDebug
 	case "3":
-		l.SetLevel(logrus.TraceLevel)
+		out = os.Stdout
+		level = slog.Level(-8) // trace-equivalent; below Debug
+	default:
+		out = os.Stdout
 	}
 
-	return l
+	return slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{
+		Level: level,
+	}))
 }

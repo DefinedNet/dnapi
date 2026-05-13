@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,7 +21,6 @@ import (
 	"github.com/DefinedNet/dnapi/internal/testutil"
 	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
-	"github.com/sirupsen/logrus"
 	"github.com/slackhq/nebula/cert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +28,15 @@ import (
 )
 
 type m map[string]interface{}
+
+// dropTimeAttr is a slog.HandlerOptions.ReplaceAttr that drops the time
+// attribute from a record, so JSON output is deterministic in tests.
+func dropTimeAttr(_ []string, a slog.Attr) slog.Attr {
+	if a.Key == slog.TimeKey {
+		return slog.Attr{}
+	}
+	return a
+}
 
 func TestEnroll(t *testing.T) {
 	t.Parallel()
@@ -988,10 +997,10 @@ func TestStreamCommandResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	// Configure a logger to write to a buffer and the stream
-	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{})
-	logger.SetOutput(io.MultiWriter(sc, &buf))
-	logger.SetLevel(logrus.DebugLevel)
+	logger := slog.New(slog.NewJSONHandler(io.MultiWriter(sc, &buf), &slog.HandlerOptions{
+		Level:       slog.LevelDebug,
+		ReplaceAttr: dropTimeAttr,
+	}))
 
 	logger.Info("Hello, world! info!")
 	logger.Warn("Hello, world! warning!")
@@ -1018,7 +1027,10 @@ func TestStreamCommandResponse(t *testing.T) {
 	sc, err = c.StreamCommandResponse(context.Background(), *creds, "responseToken")
 	require.NoError(t, err)
 
-	logger.SetOutput(io.MultiWriter(sc, &buf))
+	logger = slog.New(slog.NewJSONHandler(io.MultiWriter(sc, &buf), &slog.HandlerOptions{
+		Level:       slog.LevelDebug,
+		ReplaceAttr: dropTimeAttr,
+	}))
 
 	logger.Info("Hello, world! info!")
 	logger.Warn("Hello, world! warning!")
