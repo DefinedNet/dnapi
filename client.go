@@ -136,24 +136,29 @@ func (c *Client) Enroll(ctx context.Context, logger *slog.Logger, code string) (
 		return nil, nil, nil, nil, err
 	}
 
-	hostEd25519PublicKeyPEM, err := newKeys.HostEd25519PublicKey.MarshalPEM()
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	hostP256PublicKeyPEM, err := newKeys.HostP256PublicKey.MarshalPEM()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	// Make a request to the API with the enrollment code
+	// Make a request to the API with the enrollment code. P256 keys are always
+	// generated; the 25519 keys are omitted under FIPS (see keys.New), so only
+	// include them when they were generated. The DN API selects the key set to
+	// use based on the enrolled network's curve.
 	payload := message.EnrollRequest{
-		Code:               code,
-		NebulaPubkeyX25519: newKeys.NebulaX25519PublicKeyPEM,
-		HostPubkeyEd25519:  hostEd25519PublicKeyPEM,
-		NebulaPubkeyP256:   newKeys.NebulaP256PublicKeyPEM,
-		HostPubkeyP256:     hostP256PublicKeyPEM,
-		Timestamp:          time.Now(),
+		Code:             code,
+		NebulaPubkeyP256: newKeys.NebulaP256PublicKeyPEM,
+		HostPubkeyP256:   hostP256PublicKeyPEM,
+		Timestamp:        time.Now(),
+	}
+
+	if newKeys.HostEd25519PublicKey != nil {
+		hostEd25519PublicKeyPEM, err := newKeys.HostEd25519PublicKey.MarshalPEM()
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		payload.NebulaPubkeyX25519 = newKeys.NebulaX25519PublicKeyPEM
+		payload.HostPubkeyEd25519 = hostEd25519PublicKeyPEM
 	}
 
 	reqID, r, err := callAPI[message.EnrollResponseData](ctx, c, "POST", message.EnrollEndpoint, payload)

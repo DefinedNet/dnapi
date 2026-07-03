@@ -3,6 +3,7 @@ package keys
 import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/fips140"
 	"fmt"
 )
 
@@ -29,21 +30,10 @@ type Keys struct {
 }
 
 func New() (*Keys, error) {
-	x25519PublicKeyPEM, x25519PrivateKeyPEM, ed25519PublicKey, ed25519PrivateKey, err := newKeys25519()
-	if err != nil {
-		return nil, err
-	}
+	k := &Keys{}
 
-	ed25519PublicKeyI, err := NewPublicKey(ed25519PublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	ed25519PrivateKeyI, err := NewPrivateKey(ed25519PrivateKey)
-	if err != nil {
-		return nil, err
-	}
-
+	// P256 keys are FIPS 140-approved and are always generated. The DN API
+	// selects which key set to use based on the enrolled network's curve.
 	ecdhP256PublicKeyPEM, ecdhP256PrivateKeyPEM, ecdsaP256PublicKey, ecdsaP256PrivateKey, err := newKeysP256()
 	if err != nil {
 		return nil, err
@@ -59,16 +49,40 @@ func New() (*Keys, error) {
 		return nil, err
 	}
 
-	return &Keys{
-		NebulaX25519PublicKeyPEM:  x25519PublicKeyPEM,
-		NebulaX25519PrivateKeyPEM: x25519PrivateKeyPEM,
-		HostEd25519PublicKey:      ed25519PublicKeyI,
-		HostEd25519PrivateKey:     ed25519PrivateKeyI,
-		NebulaP256PublicKeyPEM:    ecdhP256PublicKeyPEM,
-		NebulaP256PrivateKeyPEM:   ecdhP256PrivateKeyPEM,
-		HostP256PublicKey:         ecdsaP256PublicKeyI,
-		HostP256PrivateKey:        ecdsaP256PrivateKeyI,
-	}, nil
+	k.NebulaP256PublicKeyPEM = ecdhP256PublicKeyPEM
+	k.NebulaP256PrivateKeyPEM = ecdhP256PrivateKeyPEM
+	k.HostP256PublicKey = ecdsaP256PublicKeyI
+	k.HostP256PrivateKey = ecdsaP256PrivateKeyI
+
+	// X25519/Ed25519 are not FIPS 140-approved. Under GODEBUG=fips140=only,
+	// crypto/ecdh refuses to generate an X25519 key at all, which would make
+	// enrollment fail before it ever reaches the API. When FIPS mode is enabled
+	// we therefore only offer P256 keys - FIPS networks are always P256, and the
+	// DN API accepts an enroll request that omits the 25519 keys (see the
+	// server-side NebulaHostPubkeys.HasKeys/GetNebulaPubkey handling).
+	if !fips140.Enabled() {
+		x25519PublicKeyPEM, x25519PrivateKeyPEM, ed25519PublicKey, ed25519PrivateKey, err := newKeys25519()
+		if err != nil {
+			return nil, err
+		}
+
+		ed25519PublicKeyI, err := NewPublicKey(ed25519PublicKey)
+		if err != nil {
+			return nil, err
+		}
+
+		ed25519PrivateKeyI, err := NewPrivateKey(ed25519PrivateKey)
+		if err != nil {
+			return nil, err
+		}
+
+		k.NebulaX25519PublicKeyPEM = x25519PublicKeyPEM
+		k.NebulaX25519PrivateKeyPEM = x25519PrivateKeyPEM
+		k.HostEd25519PublicKey = ed25519PublicKeyI
+		k.HostEd25519PrivateKey = ed25519PrivateKeyI
+	}
+
+	return k, nil
 }
 
 // PublicKey is a wrapper around public keys.
