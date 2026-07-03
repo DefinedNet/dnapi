@@ -44,6 +44,12 @@ jobs:
         env:
           TEST_FLAGS: -race
 
+      # Exercises the FIPS branch of keys.New() (P256-only key generation).
+      # In fips140=only mode crypto/ecdh rejects X25519, so this also guards
+      # against a regression that would break enrollment for FIPS builds.
+      - name: Run FIPS key-generation tests
+        run: GOFIPS140=v1.0.0 GODEBUG=fips140=only go test ./keys/...
+
       - name: Report failures to Slack
         if: ${{ always() && github.ref == 'refs/heads/main' }}
         uses: ravsamhq/notify-slack-action@be814b201e233b2dc673608aa46e5447c8ab13f2 # v2
