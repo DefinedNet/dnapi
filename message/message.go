@@ -133,13 +133,6 @@ type CommandResponseRequest struct {
 // CommandResponseResponse is the response message associated with a CommandResponse call.
 type CommandResponseResponse struct{}
 
-type ClientInfo struct {
-	Identifier   string `json:"identifier"`
-	Version      string `json:"version"`
-	OS           string `json:"os"`
-	Architecture string `json:"architecture"`
-}
-
 // ReauthenticateRequest is the request sent for a Reauthenticate request.
 type ReauthenticateRequest struct {
 	// Add fields as needed
