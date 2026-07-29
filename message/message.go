@@ -203,6 +203,10 @@ type EnrollRequest struct {
 	NebulaPubkeyP256   []byte    `json:"nebulaPubkeyP256"` // P256 (used for key exchange)
 	HostPubkeyP256     []byte    `json:"hostPubkeyP256"`   // P256 (used for signing)
 	Timestamp          time.Time `json:"timestamp"`
+
+	// Hostname is the enrolling machine's OS hostname. Optional; informational
+	// only, offered to the server as a suggested host name.
+	Hostname string `json:"hostname,omitempty"`
 }
 
 // EnrollResponseData is included in the EnrollResponse.
