@@ -22,14 +22,23 @@ jobs:
         with:
           go-version-file: 'go.mod'
           check-latest: true
+          # The built-in cache shares one key across every setup-go job in the
+          # repo; whichever job saves first locks the key to its contents. The
+          # explicit cache below has a job-specific key.
+          cache: false
         id: go
 
-      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+      - name: Restore Go caches
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-gofmt1.22-${{ hashFiles('**/go.sum') }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # goimports artifacts depend only on the toolchain and x/tools
+          # version, so a static key cannot go stale.
+          key: gofmt-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-gofmt1.22-
+            gofmt-go-
 
       - name: Install goimports
         run: |
