@@ -25,14 +25,20 @@ jobs:
         with:
           go-version-file: 'go.mod'
           check-latest: true
+          cache: false
         id: go
 
-      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+      - name: Restore Go caches
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go1.22-${{ hashFiles('**/go.sum') }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: test-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-go1.22-
+            test-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            test-go-${{ steps.go.outputs.go-version }}-
+            test-go-
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 #v9.2.0
