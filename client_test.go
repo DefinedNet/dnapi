@@ -1279,6 +1279,69 @@ func TestDoOidcPoll(t *testing.T) {
 	assert.Equal(t, 0, ts.RequestsRemaining())
 }
 
+func TestEndpointTokenFlowV2(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	t.Cleanup(func() { ts.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	// preauth (v2)
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.PreAuthData]{Data: message.PreAuthData{PollToken: "poll-1", LoginURL: "https://example.com/login"}})
+	})
+	pre, err := client.EndpointPreAuthV2(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "poll-1", pre.PollToken)
+
+	// poll (v2) completes with an auth token
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthPollDataV2]{Data: message.EndpointAuthPollDataV2{
+			Status:    message.EndpointAuthCompleted,
+			AuthToken: "eou-token",
+		}})
+	})
+	poll, err := client.EndpointAuthPollV2(ctx, "poll-1")
+	require.NoError(t, err)
+	assert.Equal(t, message.EndpointAuthCompleted, poll.Status)
+	assert.Equal(t, "eou-token", poll.AuthToken)
+
+	// list hosts (empty)
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthHostsData]{Data: message.EndpointAuthHostsData{Hosts: []message.EndpointAuthHost{}}})
+	})
+	hosts, err := client.ListEndpointHosts(ctx, poll.AuthToken)
+	require.NoError(t, err)
+	assert.Empty(t, hosts.Hosts)
+
+	// create a host
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthEnrollData]{Data: message.EndpointAuthEnrollData{HostID: "host-1", EnrollmentCode: "code-new"}})
+	})
+	created, err := client.CreateEndpointHost(ctx, poll.AuthToken)
+	require.NoError(t, err)
+	assert.Equal(t, "host-1", created.HostID)
+	assert.Equal(t, "code-new", created.EnrollmentCode)
+
+	// renew the existing host: no enrollment code, just a fresh network-access window
+	until := time.Now().Add(8 * time.Hour).UTC().Truncate(time.Second)
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthRenewData]{Data: message.EndpointAuthRenewData{HostID: "host-1", NetworkAccessUntil: &until}})
+	})
+	renew, err := client.RenewEndpointHost(ctx, poll.AuthToken, "host-1")
+	require.NoError(t, err)
+	assert.Equal(t, "host-1", renew.HostID)
+	require.NotNil(t, renew.NetworkAccessUntil)
+	assert.True(t, until.Equal(*renew.NetworkAccessUntil))
+
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}
+
 func TestDownloads(t *testing.T) {
 	t.Parallel()
 

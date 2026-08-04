@@ -269,6 +269,58 @@ type EndpointAuthPollData struct {
 	EnrollmentCode string            `json:"enrollmentCode"`
 }
 
+// PreAuthEndpointV2 begins the v2 (token flow) endpoint auth. Unlike v1, a completed auth yields an
+// endpoint OIDC user auth token rather than an enrollment code.
+const PreAuthEndpointV2 = "/v2/endpoint-auth/preauth"
+
+// AuthPollEndpointV2 is polled during the v2 flow. On completion it returns an AuthToken.
+const AuthPollEndpointV2 = "/v2/endpoint-auth/poll"
+
+// EndpointAuthPollDataV2 is returned by AuthPollEndpointV2.
+type EndpointAuthPollDataV2 struct {
+	Status EndpointAuthState `json:"state"`
+	// AuthToken is set once Status is COMPLETED. It is an endpoint OIDC user auth token used to
+	// authenticate the host-management endpoints below.
+	AuthToken string `json:"authToken"`
+}
+
+// EndpointAuthHostsEndpoint lists the hosts owned by the authenticated endpoint OIDC user, and
+// (via POST) creates a new host. Requires an endpoint OIDC user auth token.
+const EndpointAuthHostsEndpoint = "/v2/endpoint-auth/hosts"
+
+// EndpointAuthHost summarizes a host owned by the authenticated endpoint OIDC user.
+type EndpointAuthHost struct {
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	NetworkID          string     `json:"networkID"`
+	IsBlocked          bool       `json:"isBlocked"`
+	NetworkAccessUntil *time.Time `json:"networkAccessUntil"`
+	CreatedAt          time.Time  `json:"createdAt"`
+}
+
+// EndpointAuthHostsData is returned by a GET to EndpointAuthHostsEndpoint.
+type EndpointAuthHostsData struct {
+	Hosts []EndpointAuthHost `json:"hosts"`
+}
+
+// EndpointAuthEnrollData is returned when creating a host. The client redeems EnrollmentCode via
+// EnrollEndpoint to bring the newly-created host online. Do NOT send the endpoint OIDC user auth
+// token on the enroll call — EnrollEndpoint rejects requests carrying one.
+type EndpointAuthEnrollData struct {
+	HostID         string `json:"hostID"`
+	EnrollmentCode string `json:"enrollmentCode"`
+}
+
+// EndpointAuthRenewData is returned when renewing a host. The host has been granted a fresh
+// network-access window and queued for update; it fetches its renewed certificate and config
+// through its own (host-key-signed) update flow, so no enrollment code is issued — the server
+// never overwrites the host's key. NetworkAccessUntil is nil when the provider imposes no
+// session expiry.
+type EndpointAuthRenewData struct {
+	HostID             string     `json:"hostID"`
+	NetworkAccessUntil *time.Time `json:"networkAccessUntil"`
+}
+
 const DownloadsEndpoint = "/v1/downloads"
 
 type DownloadsData struct {

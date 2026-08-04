@@ -664,8 +664,9 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 }
 
-// callAPI returns the request ID, requested response data, and any error if applicable.
-func callAPI[T any](ctx context.Context, c *Client, method string, endpoint string, payload any) (string, *T, error) {
+// callAPI returns the request ID, requested response data, and any error if applicable. Optional
+// reqOpts are applied to the request before it is sent (e.g. to add an Authorization header).
+func callAPI[T any](ctx context.Context, c *Client, method string, endpoint string, payload any, reqOpts ...func(*http.Request)) (string, *T, error) {
 	dest, err := urlPath(c.dnServer, endpoint)
 	if err != nil {
 		return "", nil, err
@@ -683,6 +684,10 @@ func callAPI[T any](ctx context.Context, c *Client, method string, endpoint stri
 	req, err := http.NewRequestWithContext(ctx, method, dest, br)
 	if err != nil {
 		return "", nil, err
+	}
+
+	for _, opt := range reqOpts {
+		opt(req)
 	}
 
 	resp, err := c.client.Do(req)
@@ -802,6 +807,52 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*messag
 func (c *Client) Downloads(ctx context.Context) (*message.DownloadsData, error) {
 	_, d, err := callAPI[message.DownloadsData](ctx, c, "GET", message.DownloadsEndpoint, nil)
 	return d, err
+}
+
+// EndpointPreAuthV2 begins the v2 (token flow) endpoint auth. Drive the returned LoginURL in a
+// browser, then poll with EndpointAuthPollV2 using the returned PollToken.
+func (c *Client) EndpointPreAuthV2(ctx context.Context) (*message.PreAuthData, error) {
+	_, d, err := callAPI[message.PreAuthData](ctx, c, "POST", message.PreAuthEndpointV2, nil)
+	return d, err
+}
+
+// EndpointAuthPollV2 polls a v2 auth in flight. Once Status is COMPLETED, AuthToken is set and is
+// used to authenticate the host-management calls below.
+func (c *Client) EndpointAuthPollV2(ctx context.Context, pollCode string) (*message.EndpointAuthPollDataV2, error) {
+	pollURL := fmt.Sprintf("%s?pollToken=%s", message.AuthPollEndpointV2, url.QueryEscape(pollCode))
+	_, d, err := callAPI[message.EndpointAuthPollDataV2](ctx, c, "GET", pollURL, nil)
+	return d, err
+}
+
+// ListEndpointHosts returns the hosts owned by the authenticated endpoint OIDC user. authToken is an
+// endpoint OIDC user auth token obtained from EndpointAuthPollV2.
+func (c *Client) ListEndpointHosts(ctx context.Context, authToken string) (*message.EndpointAuthHostsData, error) {
+	_, d, err := callAPI[message.EndpointAuthHostsData](ctx, c, "GET", message.EndpointAuthHostsEndpoint, nil, bearer(authToken))
+	return d, err
+}
+
+// CreateEndpointHost creates a new host for the authenticated endpoint OIDC user and returns an
+// enrollment code to redeem via Enroll. This is the explicit "add a new device" action.
+func (c *Client) CreateEndpointHost(ctx context.Context, authToken string) (*message.EndpointAuthEnrollData, error) {
+	_, d, err := callAPI[message.EndpointAuthEnrollData](ctx, c, "POST", message.EndpointAuthHostsEndpoint, nil, bearer(authToken))
+	return d, err
+}
+
+// RenewEndpointHost grants an existing host owned by the authenticated endpoint OIDC user a fresh
+// network-access window. No enrollment code is issued: the host fetches its renewed certificate and
+// config through its own (host-key-signed) update flow — call LongPollWait/DoUpdate with the host's
+// stored credentials after this returns.
+func (c *Client) RenewEndpointHost(ctx context.Context, authToken string, hostID string) (*message.EndpointAuthRenewData, error) {
+	endpoint := fmt.Sprintf("%s/%s/renew", message.EndpointAuthHostsEndpoint, url.PathEscape(hostID))
+	_, d, err := callAPI[message.EndpointAuthRenewData](ctx, c, "POST", endpoint, nil, bearer(authToken))
+	return d, err
+}
+
+// bearer returns a request option that sets the Authorization header to the given bearer token.
+func bearer(token string) func(*http.Request) {
+	return func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 }
 
 func urlPath(base, path string) (string, error) {
