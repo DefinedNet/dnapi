@@ -1,16 +1,9 @@
-name: Build and test
+name: CI
 on:
   push:
     branches:
       - main
   pull_request:
-    paths:
-      - ".github/workflows/test.yml"
-      - "**Makefile"
-      - "**.go"
-      - "**.proto"
-      - "go.mod"
-      - "go.sum"
 
 jobs:
   test-linux:
@@ -66,3 +59,46 @@ jobs:
           notify_when: 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_REPORTING_WEBHOOK }}
+
+  gofmt:
+    name: Run gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache: false
+        id: go
+
+      - name: Restore Go caches
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: gofmt-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gofmt-go-
+
+      - name: Install goimports
+        run: |
+          go get golang.org/x/tools/cmd/goimports
+          go build golang.org/x/tools/cmd/goimports
+
+      - name: gofmt
+        run: $GITHUB_WORKSPACE/.github/workflows/gofmt.sh
+
+  ci-pass-fail:
+    name: pass/fail check
+    if: always()
+    needs: [test-linux, gofmt]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
