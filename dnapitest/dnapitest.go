@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/DefinedNet/dnapi/keys"
@@ -79,10 +80,28 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.expectedRequests = s.expectedRequests[1:]
 		w.WriteHeader(expected.StatusCode())
 		_, _ = w.Write(expected.Respond(nil))
+	case message.PreAuthEndpointV2, message.EndpointAuthHostsEndpoint:
+		s.handlerQueued(w, r)
+	case message.AuthPollEndpointV2:
+		s.handlerDoOidcPoll(w, r)
 	default:
+		// The renew path embeds the host ID (/v2/endpoint-auth/hosts/{hostID}/renew).
+		if strings.HasPrefix(r.URL.Path, message.EndpointAuthHostsEndpoint+"/") && strings.HasSuffix(r.URL.Path, "/renew") {
+			s.handlerQueued(w, r)
+			return
+		}
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))
 		http.NotFound(w, r)
 	}
+}
+
+// handlerQueued responds with the next queued mock response, regardless of request contents. Used
+// for endpoints whose requests carry no fields the mock needs to validate.
+func (s *Server) handlerQueued(w http.ResponseWriter, _ *http.Request) {
+	expected := s.expectedRequests[0]
+	s.expectedRequests = s.expectedRequests[1:]
+	w.WriteHeader(expected.StatusCode())
+	_, _ = w.Write(expected.Respond(nil))
 }
 
 func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
