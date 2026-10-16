@@ -1,0 +1,104 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-linux:
+    name: Build and test on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache: false
+        id: go
+
+      - name: Restore Go caches
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: test-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            test-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            test-go-${{ steps.go.outputs.go-version }}-
+            test-go-
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 #v9.2.0
+        with:
+          version: v2.11
+
+      - name: Run unit tests
+        run: make testvv
+        env:
+          TEST_FLAGS: -race
+
+      # Exercises the FIPS branch of keys.New() (P256-only key generation).
+      # In fips140=only mode crypto/ecdh rejects X25519, so this also guards
+      # against a regression that would break enrollment for FIPS builds.
+      - name: Run FIPS key-generation tests
+        run: GOFIPS140=v1.0.0 GODEBUG=fips140=only go test ./keys/...
+
+      - name: Report failures to Slack
+        if: ${{ always() && github.ref == 'refs/heads/main' }}
+        uses: ravsamhq/notify-slack-action@be814b201e233b2dc673608aa46e5447c8ab13f2 # v2
+        with:
+          notification_title: "It seems that my sole purpose in this dismal existence is to spread the gloomy news of broken code and shattered dreams."
+          footer: "I think you ought to know I'm feeling very depressed."
+          status: ${{ job.status }}
+          notify_when: 'failure'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_REPORTING_WEBHOOK }}
+
+  gofmt:
+    name: Run gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache: false
+        id: go
+
+      - name: Restore Go caches
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: gofmt-go-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gofmt-go-
+
+      - name: Install goimports
+        run: |
+          go get golang.org/x/tools/cmd/goimports
+          go build golang.org/x/tools/cmd/goimports
+
+      - name: gofmt
+        run: $GITHUB_WORKSPACE/.github/workflows/gofmt.sh
+
+  ci-pass-fail:
+    name: pass/fail check
+    if: always()
+    needs: [test-linux, gofmt]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
