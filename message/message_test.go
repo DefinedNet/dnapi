@@ -7,9 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An error-only APIResponse must round-trip without emitting a zero-valued
-// data object, whose empty curve would fail NetworkCurve validation on decode
-// and mask the errors.
 func TestAPIResponseErrorOnlyRoundTrip(t *testing.T) {
 	b, err := json.Marshal(APIResponse[EnrollResponseData]{
 		Errors: APIResponseErrors{{Code: "ERR_TEST", Message: "test error"}},
@@ -22,7 +19,6 @@ func TestAPIResponseErrorOnlyRoundTrip(t *testing.T) {
 	require.EqualError(t, r.Errors.Err(), "test error")
 }
 
-// A data-only APIResponse must omit the errors key, matching the API.
 func TestAPIResponseDataOnlyOmitsErrors(t *testing.T) {
 	b, err := json.Marshal(APIResponse[EnrollResponseData]{
 		Data: EnrollResponseData{

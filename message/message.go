@@ -151,11 +151,7 @@ type ReauthenticateResponse struct {
 }
 
 // APIResponse is a standard format for the DN API. It does not apply to the DNClient API.
-// The API sends exactly one of data or errors, so marshalling omits whichever
-// is unset. Data requires omitzero (not omitempty) because omitempty never
-// omits a struct: a zero-valued Data emitted alongside errors has fields that
-// can fail validation on decode (such as NetworkCurve), masking the errors the
-// response was meant to carry.
+// The API sends exactly one of data or errors.
 type APIResponse[T any] struct {
 	Data   T                 `json:"data,omitzero"`
 	Errors APIResponseErrors `json:"errors,omitempty"`
