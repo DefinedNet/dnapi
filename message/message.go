@@ -151,9 +151,10 @@ type ReauthenticateResponse struct {
 }
 
 // APIResponse is a standard format for the DN API. It does not apply to the DNClient API.
+// The API sends exactly one of data or errors.
 type APIResponse[T any] struct {
-	Data   T                 `json:"data"`
-	Errors APIResponseErrors `json:"errors"`
+	Data   T                 `json:"data,omitzero"`
+	Errors APIResponseErrors `json:"errors,omitempty"`
 }
 
 // APIResponseError represents a single error returned in an API error response.

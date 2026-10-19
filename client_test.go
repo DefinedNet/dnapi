@@ -173,7 +173,7 @@ func TestEnroll(t *testing.T) {
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	cfg, pkey, creds, meta, err = client.Enroll(ctx, testutil.NewTestLogger(), code, "")
-	require.Errorf(t, err, fmt.Sprintf("unexpected error during enrollment: %s", errorMsg))
+	require.EqualError(t, err, "unexpected error during enrollment: "+errorMsg)
 
 	assert.Nil(t, cfg)
 	assert.Nil(t, pkey)
