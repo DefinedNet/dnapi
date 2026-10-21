@@ -30,6 +30,38 @@ type Client struct {
 	streamingClient *http.Client
 }
 
+// fallbackAddrs holds the pinned addresses behind api-backup.defined.net.
+// They are dialed only when the system resolver cannot resolve the host, so a
+// client whose DNS points into a Nebula network that is down (expired OIDC,
+// lost network access) can still reach the API to recover. TLS still
+// verifies against the hostname, so a fallback address cannot impersonate
+// the API.
+var fallbackAddrs = map[string][]string{
+	"api.defined.net": {"209.46.53.8", "209.46.53.81", "209.46.53.153"},
+}
+
+// dialWithFallback returns a DialContext that retries DNS failures for hosts
+// in fallback against their pinned addresses.
+func dialWithFallback(fallback map[string][]string) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := d.DialContext(ctx, network, addr)
+		host, port, splitErr := net.SplitHostPort(addr)
+		var dnsErr *net.DNSError
+		if err == nil || splitErr != nil || !errors.As(err, &dnsErr) {
+			return conn, err
+		}
+		for _, ip := range fallback[host] {
+			conn, fbErr := d.DialContext(ctx, network, net.JoinHostPort(ip, port))
+			if fbErr == nil {
+				return conn, nil
+			}
+			err = fmt.Errorf("%w; fallback %s: %w", err, ip, fbErr)
+		}
+		return nil, err
+	}
+}
+
 // NewClient returns new Client configured with the given useragent.
 // It also supports reading Proxy information from the environment.
 func NewClient(useragent string, dnServer string) *Client {
@@ -40,9 +72,7 @@ func NewClient(useragent string, dnServer string) *Client {
 				T: &http.Transport{
 					Proxy:               http.ProxyFromEnvironment,
 					TLSHandshakeTimeout: 10 * time.Second,
-					DialContext: (&net.Dialer{
-						Timeout: 10 * time.Second,
-					}).DialContext,
+					DialContext:         dialWithFallback(fallbackAddrs),
 				},
 				useragent: useragent,
 			},
@@ -53,9 +83,7 @@ func NewClient(useragent string, dnServer string) *Client {
 				T: &http.Transport{
 					Proxy:               http.ProxyFromEnvironment,
 					TLSHandshakeTimeout: 10 * time.Second,
-					DialContext: (&net.Dialer{
-						Timeout: 10 * time.Second,
-					}).DialContext,
+					DialContext:         dialWithFallback(fallbackAddrs),
 				},
 				useragent: useragent,
 			},

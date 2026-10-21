@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1191,6 +1192,27 @@ func TestOverrideTimeout(t *testing.T) {
 	defer cancel()
 	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123", "")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestDialWithFallback(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(ts.Close)
+	_, port, err := net.SplitHostPort(ts.Listener.Addr().String())
+	require.NoError(t, err)
+
+	// .invalid never resolves (RFC 2606), so the pinned address must be used
+	dial := dialWithFallback(map[string][]string{"api.invalid": {"127.0.0.1"}})
+	conn, err := dial(context.Background(), "tcp", "api.invalid:"+port)
+	require.NoError(t, err)
+	assert.Equal(t, ts.Listener.Addr().String(), conn.RemoteAddr().String())
+	conn.Close()
+
+	// hosts without a fallback surface the DNS error unchanged
+	var dnsErr *net.DNSError
+	_, err = dial(context.Background(), "tcp", "other.invalid:"+port)
+	require.ErrorAs(t, err, &dnsErr)
 }
 
 func TestGetOidcPollCode(t *testing.T) {
