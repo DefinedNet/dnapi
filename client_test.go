@@ -1564,3 +1564,24 @@ func TestNebulaPemBanners(t *testing.T) {
 	pub = ca.MarshalPublicKeyPEM()
 	assert.Contains(t, string(pub), NebulaECDSAP256PublicKeyBanner)
 }
+
+func TestHTTP2(t *testing.T) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, r.Proto)
+	}))
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	defer ts.Close()
+
+	c := NewClient("TestHTTP2 agent", ts.URL)
+	for _, hc := range []*http.Client{c.client, c.streamingClient} {
+		// Trust the test server's certificate without changing anything else.
+		hc.Transport.(*uaTransport).T.(*http.Transport).TLSClientConfig = ts.Client().Transport.(*http.Transport).TLSClientConfig
+		resp, err := hc.Get(ts.URL)
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.NoError(t, err)
+		assert.Equal(t, "HTTP/2.0", string(body))
+	}
+}

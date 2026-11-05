@@ -73,6 +73,8 @@ func NewClient(useragent string, dnServer string) *Client {
 					Proxy:               http.ProxyFromEnvironment,
 					TLSHandshakeTimeout: 10 * time.Second,
 					DialContext:         dialWithFallback(fallbackAddrs),
+					// A custom DialContext disables Go's automatic HTTP/2.
+					ForceAttemptHTTP2: true,
 				},
 				useragent: useragent,
 			},
@@ -84,6 +86,8 @@ func NewClient(useragent string, dnServer string) *Client {
 					Proxy:               http.ProxyFromEnvironment,
 					TLSHandshakeTimeout: 10 * time.Second,
 					DialContext:         dialWithFallback(fallbackAddrs),
+					// A custom DialContext disables Go's automatic HTTP/2.
+					ForceAttemptHTTP2: true,
 				},
 				useragent: useragent,
 			},
