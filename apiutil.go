@@ -3,13 +3,13 @@ package dnapi
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v3"
 )
 
 // InsertConfigPrivateKey takes a Nebula YAML and a Nebula PEM-formatted private key, and inserts the private key into
 // the config, overwriting any previous value stored in the config.
 func InsertConfigPrivateKey(config []byte, privkey []byte) ([]byte, error) {
-	var y map[interface{}]interface{}
+	var y map[string]any
 	if err := yaml.Unmarshal(config, &y); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %s", err)
 	}
@@ -19,12 +19,12 @@ func InsertConfigPrivateKey(config []byte, privkey []byte) ([]byte, error) {
 		return nil, fmt.Errorf("config is missing expected pki section")
 	}
 
-	_, ok = y["pki"].(map[interface{}]interface{})
+	_, ok = y["pki"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("config has unexpected value for pki section")
 	}
 
-	y["pki"].(map[interface{}]interface{})["key"] = string(privkey)
+	y["pki"].(map[string]any)["key"] = string(privkey)
 
 	return yaml.Marshal(y)
 }
@@ -32,7 +32,7 @@ func InsertConfigPrivateKey(config []byte, privkey []byte) ([]byte, error) {
 // InsertConfigCert takes a Nebula YAML and a Nebula PEM-formatted host certifiate, and inserts the certificate into
 // the config, overwriting any previous value stored.
 func InsertConfigCert(config []byte, cert []byte) ([]byte, error) {
-	var y map[any]any
+	var y map[string]any
 	if err := yaml.Unmarshal(config, &y); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %s", err)
 	}
@@ -42,12 +42,12 @@ func InsertConfigCert(config []byte, cert []byte) ([]byte, error) {
 		return nil, fmt.Errorf("config is missing expected pki section")
 	}
 
-	_, ok = y["pki"].(map[any]any)
+	_, ok = y["pki"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("config has unexpected value for pki section")
 	}
 
-	y["pki"].(map[any]any)["cert"] = string(cert)
+	y["pki"].(map[string]any)["cert"] = string(cert)
 
 	return yaml.Marshal(y)
 }
@@ -55,7 +55,7 @@ func InsertConfigCert(config []byte, cert []byte) ([]byte, error) {
 // FetchConfigPrivateKeyAndCert takes a Nebula YAML, finds and returns its contained Nebula PEM-formatted private key,
 // the Nebula PEM-formatted host cert, or an error.
 func FetchConfigPrivateKeyAndCert(config []byte) ([]byte, []byte, error) {
-	var y map[any]any
+	var y map[string]any
 	if err := yaml.Unmarshal(config, &y); err != nil {
 		return nil, nil, fmt.Errorf("failed to unmarshal config: %s", err)
 	}
@@ -65,7 +65,7 @@ func FetchConfigPrivateKeyAndCert(config []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("config is missing expected pki section")
 	}
 
-	pki, ok := y["pki"].(map[any]any)
+	pki, ok := y["pki"].(map[string]any)
 	if !ok {
 		return nil, nil, fmt.Errorf("config has unexpected value for pki section")
 	}
