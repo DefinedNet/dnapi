@@ -22,7 +22,7 @@ import (
 	"github.com/DefinedNet/dnapi/keys"
 	"github.com/DefinedNet/dnapi/message"
 	"github.com/slackhq/nebula/cert"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v3"
 )
 
 // m is a helper type for building out generic maps (e.g. for marshalling.)

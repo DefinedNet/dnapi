@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestInsertConfigPrivateKey(t *testing.T) {
@@ -19,7 +19,7 @@ pki: {}
 	err = yaml.Unmarshal(cfg, &y)
 	require.NoError(t, err)
 
-	require.Equal(t, "foobar", y["pki"].(map[any]any)["key"])
+	require.Equal(t, "foobar", y["pki"].(map[string]any)["key"])
 
 	_, err = InsertConfigPrivateKey([]byte(``), []byte("foobar"))
 	require.Error(t, err)
@@ -37,7 +37,7 @@ func TestFetchConfigPrivateKey(t *testing.T) {
 	var y map[string]any
 	err = yaml.Unmarshal(cfg, &y)
 	require.NoError(t, err)
-	require.Equal(t, keyValue, []byte(y["pki"].(map[any]any)["key"].(string)))
+	require.Equal(t, keyValue, []byte(y["pki"].(map[string]any)["key"].(string)))
 
 	fetchedVal, fetchedCert, err := FetchConfigPrivateKeyAndCert(cfg)
 	require.NoError(t, err)
