@@ -1,7 +1,5 @@
 module github.com/DefinedNet/dnapi
 
-// 1.26.3+ required: earlier point releases fail every TLS handshake under
-// fips140=only, generating the default X25519MLKEM768 key share (golang/go#78372)
 go 1.27.3
 
 require (
