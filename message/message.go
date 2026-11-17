@@ -15,6 +15,7 @@ const (
 	LongPollWait    = "LongPollWait"
 	CommandResponse = "CommandResponse"
 	Reauthenticate  = "Reauthenticate"
+	Unenroll        = "Unenroll"
 )
 
 // EndpointV1 is the version 1 DNClient API endpoint.
@@ -144,6 +145,9 @@ type ClientInfo struct {
 type ReauthenticateRequest struct {
 	// Add fields as needed
 }
+
+// UnenrollRequest is the request sent for an Unenroll request.
+type UnenrollRequest struct{}
 
 // ReauthenticateResponse is the response message associated with a Reauthenticate request.
 type ReauthenticateResponse struct {

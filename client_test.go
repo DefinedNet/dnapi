@@ -1564,3 +1564,71 @@ func TestNebulaPemBanners(t *testing.T) {
 	pub = ca.MarshalPublicKeyPEM()
 	assert.Contains(t, string(pub), NebulaECDSAP256PublicKeyBanner)
 }
+
+func TestUnenroll(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, _ := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	ts.ExpectEnrollment("foobar", message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{"pki": m{"ca": string(caPEM)}})
+		require.NoError(t, err)
+		return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
+				Network:     message.HostNetworkMetadata{Curve: message.NetworkCurve25519},
+			},
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	require.NoError(t, err)
+
+	// The API answers success with an empty, unsigned body.
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+		assert.JSONEq(t, "{}", string(r.Value))
+		return jsonMarshal(struct{}{})
+	})
+	require.NoError(t, c.Unenroll(ctx, *creds))
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusForbidden, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.APIResponse[struct{}]{
+			Errors: message.APIResponseErrors{{
+				Code:    "ERR_UNENROLL_NOT_EPHEMERAL",
+				Message: "only hosts enrolled with an ephemeral join key can unenroll themselves",
+			}},
+		})
+	})
+	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrNotEphemeral)
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusUnauthorized, func(r message.RequestWrapper) []byte {
+		return []byte("Unauthorized")
+	})
+	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrInvalidCredentials)
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusInternalServerError, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.APIResponse[struct{}]{
+			Errors: message.APIResponseErrors{{Code: "ERR_INTERNAL", Message: "boom"}},
+		})
+	})
+	err = c.Unenroll(ctx, *creds)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotEphemeral)
+	assert.NotErrorIs(t, err, ErrInvalidCredentials)
+
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}

@@ -112,6 +112,10 @@ var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
 var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
 var ErrHostBlocked = fmt.Errorf("host is blocked")
 
+// ErrNotEphemeral is returned by Unenroll when the host was not enrolled with an ephemeral join key.
+// Only an administrator can delete such a host.
+var ErrNotEphemeral = fmt.Errorf("only hosts enrolled with an ephemeral join key can unenroll themselves")
+
 type ConfigMeta struct {
 	Org          ConfigOrg
 	Network      ConfigNetwork
@@ -591,6 +595,23 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 	}
 
 	return &response, nil
+}
+
+// Unenroll deletes the calling host from its network. A host that no longer exists returns
+// ErrInvalidCredentials, and a host not enrolled with an ephemeral join key returns ErrNotEphemeral.
+func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
+	value, err := json.Marshal(message.UnenrollRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	// The API does not sign this response, and its body is empty.
+	_, err = c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	var apiErrors message.APIErrors
+	if errors.As(err, &apiErrors) && len(apiErrors) == 1 && apiErrors[0].Code == "ERR_UNENROLL_NOT_EPHEMERAL" {
+		return ErrNotEphemeral
+	}
+	return err
 }
 
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
