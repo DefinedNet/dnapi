@@ -137,6 +137,8 @@ type ConfigHost struct {
 	ID          string
 	Name        string
 	IPAddresses []string
+	// Ephemeral is nil when the API does not report it.
+	Ephemeral *bool
 }
 
 type ConfigEndpointOIDC struct {
@@ -231,6 +233,7 @@ func (c *Client) Enroll(ctx context.Context, logger *slog.Logger, code string, h
 			ID:          r.HostID,
 			Name:        r.Host.Name,
 			IPAddresses: mergeIPAddresses(r.Host.IPAddresses, r.Host.IPAddress),
+			Ephemeral:   r.Host.Ephemeral,
 		},
 	}
 
@@ -405,6 +408,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 			ID:          result.Host.ID,
 			Name:        result.Host.Name,
 			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
+			Ephemeral:   result.Host.Ephemeral,
 		},
 	}
 
@@ -513,6 +517,7 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 			ID:          result.Host.ID,
 			Name:        result.Host.Name,
 			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
+			Ephemeral:   result.Host.Ephemeral,
 		},
 	}
 
