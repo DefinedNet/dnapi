@@ -1600,7 +1600,7 @@ func TestUnenroll(t *testing.T) {
 	// The API answers success with an empty, unsigned body.
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 		assert.JSONEq(t, "{}", string(r.Value))
-		return jsonMarshal(struct{}{})
+		return []byte(`{"data":{}}`)
 	})
 	require.NoError(t, c.Unenroll(ctx, *creds))
 
@@ -1628,6 +1628,14 @@ func TestUnenroll(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotEphemeral)
 	assert.NotErrorIs(t, err, ErrInvalidCredentials)
+
+	// A proxy's JSON error page has no errors array and must not read as success.
+	for _, body := range []string{`{"message":"Service Unavailable"}`, `{}`, `null`} {
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusServiceUnavailable, func(r message.RequestWrapper) []byte {
+			return []byte(body)
+		})
+		assert.Error(t, c.Unenroll(ctx, *creds), body)
+	}
 
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())

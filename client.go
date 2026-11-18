@@ -708,7 +708,8 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		var errors struct {
 			Errors message.APIResponseErrors
 		}
-		if err := json.Unmarshal(respBody, &errors); err != nil {
+		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
+		if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
 			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
 		}
 		return nil, errors.Errors.Err()
