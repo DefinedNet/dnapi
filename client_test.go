@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -1300,6 +1301,143 @@ func TestDoOidcPoll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, resp.Status, message.EndpointAuthCompleted)
 	assert.Equal(t, resp.EnrollmentCode, "deadbeef")
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}
+
+func TestEndpointTokenFlowV2(t *testing.T) {
+	t.Parallel()
+
+	useragent := "dnclientUnitTests/1.0.0 (not a real client)"
+	ts := dnapitest.NewServer(useragent)
+	client := NewClient(useragent, ts.URL)
+	t.Cleanup(func() { ts.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	secrets, err := NewEndpointAuthSecrets()
+	require.NoError(t, err)
+	const redirectURI = "http://127.0.0.1:49152/callback"
+
+	// the authorization endpoint comes from the server metadata
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
+		req := r.(dnapitest.APIRequest)
+		assert.Equal(t, "GET", req.Method)
+		assert.Equal(t, message.OAuthServerMetadataEndpoint, req.Path)
+		return jsonMarshal(message.OAuthServerMetadata{Issuer: ts.URL, AuthorizationEndpoint: "https://auth.example.com/oauth/authorize"})
+	})
+
+	// the pushed authorization request sends the client, redirect URI, PKCE challenge, state, and
+	// login hint as a form
+	ts.ExpectAPIRequest(http.StatusCreated, func(r any) []byte {
+		req := r.(dnapitest.APIRequest)
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, message.OAuthPushedRequestEndpoint, req.Path)
+		assert.Equal(t, "application/x-www-form-urlencoded", req.Header.Get("Content-Type"))
+		form, err := url.ParseQuery(string(req.Body))
+		require.NoError(t, err)
+		assert.Equal(t, url.Values{
+			"client_id":             {message.OAuthClientDNClient},
+			"response_type":         {"code"},
+			"redirect_uri":          {redirectURI},
+			"scope":                 {message.OAuthScopeEndpointHosts},
+			"code_challenge":        {secrets.CodeChallenge},
+			"code_challenge_method": {"S256"},
+			"state":                 {secrets.State},
+			"login_hint":            {"user@example.com"},
+		}, form)
+		return jsonMarshal(message.PushedAuthorizationData{RequestURI: "urn:ietf:params:oauth:request_uri:oapar-x", ExpiresIn: 60})
+	})
+	authorizeURL, err := client.EndpointAuthorize(ctx, message.OAuthClientDNClient, redirectURI, secrets, "user@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "https://auth.example.com/oauth/authorize?client_id=dnclient&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Aoapar-x", authorizeURL)
+
+	// an authorization endpoint that is not a web URL is refused, before anything is pushed
+	for _, endpoint := range []string{"file:///etc/passwd", "javascript:alert(1)", "http://auth.example.com/oauth/authorize", "https://user@auth.example.com/oauth/authorize"} {
+		ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+			return jsonMarshal(message.OAuthServerMetadata{Issuer: ts.URL, AuthorizationEndpoint: endpoint})
+		})
+		_, err = client.EndpointAuthorize(ctx, message.OAuthClientDNClient, redirectURI, secrets, "")
+		require.ErrorContains(t, err, "unexpected authorization endpoint", endpoint)
+	}
+
+	// metadata for another issuer is refused, before anything is pushed
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.OAuthServerMetadata{Issuer: "https://evil.example", AuthorizationEndpoint: "https://evil.example/oauth/authorize"})
+	})
+	_, err = client.EndpointAuthorize(ctx, message.OAuthClientDNClient, redirectURI, secrets, "")
+	require.ErrorContains(t, err, "issuer")
+
+	// the browser returns to the redirect URI with a code
+	code, err := secrets.ParseCallback(url.Values{"code": {"eaexch-code"}, "state": {secrets.State}, "iss": {ts.URL}}, client.OAuthIssuer())
+	require.NoError(t, err)
+
+	// the token request sends the code, client, redirect URI and verifier
+	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
+		req := r.(dnapitest.APIRequest)
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, message.OAuthTokenEndpoint, req.Path)
+		form, err := url.ParseQuery(string(req.Body))
+		require.NoError(t, err)
+		assert.Equal(t, url.Values{
+			"grant_type":    {"authorization_code"},
+			"client_id":     {message.OAuthClientDNClient},
+			"code":          {"eaexch-code"},
+			"redirect_uri":  {redirectURI},
+			"code_verifier": {secrets.CodeVerifier},
+		}, form)
+		assert.Empty(t, req.Header.Get("Authorization"))
+		return jsonMarshal(message.OAuthTokenData{
+			AccessToken: "eou-token", TokenType: "Bearer", ExpiresIn: 900, Scope: message.OAuthScopeEndpointHosts,
+			Email: "alice@example.com", NetworkID: "network-1", NetworkName: "Corp",
+		})
+	})
+	tok, err := client.EndpointAuthToken(ctx, message.OAuthClientDNClient, redirectURI, code, secrets)
+	require.NoError(t, err)
+	assert.Equal(t, &message.OAuthTokenData{
+		AccessToken: "eou-token", TokenType: "Bearer", ExpiresIn: 900, Scope: message.OAuthScopeEndpointHosts,
+		Email: "alice@example.com", NetworkID: "network-1", NetworkName: "Corp",
+	}, tok)
+
+	// a failed redemption is an OAuthError
+	ts.ExpectAPIRequest(http.StatusBadRequest, func(any) []byte {
+		return jsonMarshal(message.OAuthErrorData{Error: "invalid_grant", ErrorDescription: "invalid authorization code"})
+	})
+	_, err = client.EndpointAuthToken(ctx, message.OAuthClientDNClient, redirectURI, code, secrets)
+	var oerr *OAuthError
+	require.ErrorAs(t, err, &oerr)
+	assert.Equal(t, "invalid_grant", oerr.Code)
+	assert.Equal(t, http.StatusBadRequest, oerr.StatusCode)
+
+	// list hosts (empty)
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthHostsData]{Data: message.EndpointAuthHostsData{Hosts: []message.EndpointAuthHost{}}})
+	})
+	hosts, err := client.ListEndpointHosts(ctx, tok.AccessToken)
+	require.NoError(t, err)
+	assert.Empty(t, hosts.Hosts)
+
+	// create a host
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthEnrollData]{Data: message.EndpointAuthEnrollData{HostID: "host-1", EnrollmentCode: "code-new"}})
+	})
+	created, err := client.CreateEndpointHost(ctx, tok.AccessToken)
+	require.NoError(t, err)
+	assert.Equal(t, "host-1", created.HostID)
+	assert.Equal(t, "code-new", created.EnrollmentCode)
+
+	// renew the existing host: no enrollment code, just a fresh network-access window
+	until := time.Now().Add(8 * time.Hour).UTC().Truncate(time.Second)
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return jsonMarshal(message.APIResponse[message.EndpointAuthRenewData]{Data: message.EndpointAuthRenewData{HostID: "host-1", NetworkAccessUntil: &until}})
+	})
+	renew, err := client.RenewEndpointHost(ctx, tok.AccessToken, "host-1")
+	require.NoError(t, err)
+	assert.Equal(t, "host-1", renew.HostID)
+	require.NotNil(t, renew.NetworkAccessUntil)
+	assert.True(t, until.Equal(*renew.NetworkAccessUntil))
+
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 }

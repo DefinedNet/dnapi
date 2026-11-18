@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/DefinedNet/dnapi/keys"
@@ -79,10 +80,45 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.expectedRequests = s.expectedRequests[1:]
 		w.WriteHeader(expected.StatusCode())
 		_, _ = w.Write(expected.Respond(nil))
+	case message.OAuthServerMetadataEndpoint, message.OAuthPushedRequestEndpoint, message.OAuthTokenEndpoint, message.EndpointAuthHostsEndpoint:
+		s.handlerQueued(w, r)
 	default:
+		// The renew path embeds the host ID (/v2/endpoint-auth/hosts/{hostID}/renew).
+		if strings.HasPrefix(r.URL.Path, message.EndpointAuthHostsEndpoint+"/") && strings.HasSuffix(r.URL.Path, "/renew") {
+			s.handlerQueued(w, r)
+			return
+		}
 		s.errors = append(s.errors, fmt.Errorf("invalid request path %s", r.URL.Path))
 		http.NotFound(w, r)
 	}
+}
+
+// APIRequest is passed to an ExpectAPIRequest callback for the v2 endpoint auth endpoints, so a test
+// can check what the client sent.
+type APIRequest struct {
+	Method string
+	Path   string
+	Header http.Header
+	Body   []byte
+}
+
+// handlerQueued responds with the next queued mock response, passing the callback an APIRequest
+// describing the request so the test can validate it.
+func (s *Server) handlerQueued(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.errors = append(s.errors, fmt.Errorf("failed to read request body: %w", err))
+	}
+
+	expected := s.expectedRequests[0]
+	s.expectedRequests = s.expectedRequests[1:]
+	w.WriteHeader(expected.StatusCode())
+	_, _ = w.Write(expected.Respond(APIRequest{
+		Method: r.Method,
+		Path:   r.URL.Path,
+		Header: r.Header.Clone(),
+		Body:   body,
+	}))
 }
 
 func (s *Server) handlerEnroll(w http.ResponseWriter, r *http.Request) {
