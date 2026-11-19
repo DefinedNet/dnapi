@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -694,8 +695,9 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	}
 }
 
-// callAPI returns the request ID, requested response data, and any error if applicable.
-func callAPI[T any](ctx context.Context, c *Client, method string, endpoint string, payload any) (string, *T, error) {
+// callAPI returns the request ID, requested response data, and any error if applicable. Optional
+// reqOpts are applied to the request before it is sent (e.g. to add an Authorization header).
+func callAPI[T any](ctx context.Context, c *Client, method string, endpoint string, payload any, reqOpts ...func(*http.Request)) (string, *T, error) {
 	dest, err := urlPath(c.dnServer, endpoint)
 	if err != nil {
 		return "", nil, err
@@ -713,6 +715,10 @@ func callAPI[T any](ctx context.Context, c *Client, method string, endpoint stri
 	req, err := http.NewRequestWithContext(ctx, method, dest, br)
 	if err != nil {
 		return "", nil, err
+	}
+
+	for _, opt := range reqOpts {
+		opt(req)
 	}
 
 	resp, err := c.client.Do(req)
@@ -832,6 +838,199 @@ func (c *Client) EndpointAuthPoll(ctx context.Context, pollCode string) (*messag
 func (c *Client) Downloads(ctx context.Context) (*message.DownloadsData, error) {
 	_, d, err := callAPI[message.DownloadsData](ctx, c, "GET", message.DownloadsEndpoint, nil)
 	return d, err
+}
+
+// OAuthIssuer is the issuer identifier the API's authorization server reports in its authorization
+// responses (RFC 9207): the API's base URL. Pass it to EndpointAuthSecrets.ParseCallback.
+func (c *Client) OAuthIssuer() string {
+	return strings.TrimSuffix(c.dnServer, "/")
+}
+
+// EndpointAuthorize begins an endpoint SSO login, returning the authorization URL, a page of the
+// login frontend, to open in the system browser. Generate the login's secrets with
+// NewEndpointAuthSecrets and start listening on redirectURI first, then open the URL right away: it
+// expires within a minute and opens only once. The browser returns to
+// redirectURI with an authorization code (see EndpointAuthSecrets.ParseCallback), which
+// EndpointAuthToken redeems. loginHint is the user's email when known (e.g. renewing a host), or
+// empty.
+func (c *Client) EndpointAuthorize(ctx context.Context, clientID, redirectURI string, s *EndpointAuthSecrets, loginHint string) (string, error) {
+	form := url.Values{
+		"client_id":             {clientID},
+		"response_type":         {"code"},
+		"redirect_uri":          {redirectURI},
+		"scope":                 {message.OAuthScopeEndpointHosts},
+		"code_challenge":        {s.CodeChallenge},
+		"code_challenge_method": {"S256"},
+		"state":                 {s.State},
+	}
+	if loginHint != "" {
+		form.Set("login_hint", loginHint)
+	}
+	meta, err := c.OAuthServerMetadata(ctx)
+	if err != nil {
+		return "", err
+	}
+	authorizeURL, err := url.Parse(meta.AuthorizationEndpoint)
+	if err != nil || !isWebURL(authorizeURL) || authorizeURL.RawQuery != "" || authorizeURL.Fragment != "" {
+		return "", fmt.Errorf("unexpected authorization endpoint from API: %q", meta.AuthorizationEndpoint)
+	}
+
+	d, err := callOAuth[message.PushedAuthorizationData](ctx, c, message.OAuthPushedRequestEndpoint, form)
+	if err != nil {
+		return "", err
+	}
+	authorizeURL.RawQuery = url.Values{"client_id": {clientID}, "request_uri": {d.RequestURI}}.Encode()
+	return authorizeURL.String(), nil
+}
+
+// isWebURL reports whether u is safe to open in the system browser: https, or http to a loopback
+// host for local development. Anything else would hand the URL to whatever the OS registers for its
+// scheme.
+func isWebURL(u *url.URL) bool {
+	switch u.Scheme {
+	case "https":
+		return u.Host != "" && u.User == nil
+	case "http":
+		host := u.Hostname()
+		return u.User == nil && (host == "localhost" || net.ParseIP(host).IsLoopback())
+	default:
+		return false
+	}
+}
+
+// OAuthServerMetadata fetches the authorization server metadata, checking that it describes this
+// API's authorization server (RFC 8414 section 3.3).
+func (c *Client) OAuthServerMetadata(ctx context.Context) (*message.OAuthServerMetadata, error) {
+	dest, err := urlPath(c.dnServer, message.OAuthServerMetadataEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", dest, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	reqID := resp.Header.Get("X-Request-ID")
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &APIError{e: fmt.Errorf("error reading response body: %s", err), ReqID: reqID}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &APIError{e: fmt.Errorf("received HTTP %d fetching authorization server metadata\nbody: %s", resp.StatusCode, b), ReqID: reqID}
+	}
+	var meta message.OAuthServerMetadata
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return nil, &APIError{e: fmt.Errorf("error decoding authorization server metadata: %s\nbody: %s", err, b), ReqID: reqID}
+	}
+	if meta.Issuer != c.OAuthIssuer() {
+		return nil, fmt.Errorf("authorization server metadata is for issuer %q, not %q", meta.Issuer, c.OAuthIssuer())
+	}
+	return &meta, nil
+}
+
+// EndpointAuthToken redeems the authorization code delivered to redirectURI for an endpoint OIDC
+// user auth token. clientID and redirectURI must be the ones passed to EndpointAuthorize, and s the
+// same secrets. A code is good for one attempt only, whether or not it succeeds.
+func (c *Client) EndpointAuthToken(ctx context.Context, clientID, redirectURI, code string, s *EndpointAuthSecrets) (*message.OAuthTokenData, error) {
+	return callOAuth[message.OAuthTokenData](ctx, c, message.OAuthTokenEndpoint, url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {clientID},
+		"code":          {code},
+		"redirect_uri":  {redirectURI},
+		"code_verifier": {s.CodeVerifier},
+	})
+}
+
+// OAuthError is an error response from one of the API's OAuth endpoints.
+type OAuthError struct {
+	// Code is the OAuth error code, e.g. invalid_grant.
+	Code        string
+	Description string
+	StatusCode  int
+	ReqID       string
+}
+
+func (e *OAuthError) Error() string {
+	if e.Description == "" {
+		return fmt.Sprintf("oauth error %s (HTTP %d)", e.Code, e.StatusCode)
+	}
+	return fmt.Sprintf("oauth error %s (HTTP %d): %s", e.Code, e.StatusCode, e.Description)
+}
+
+// callOAuth posts a form to an OAuth endpoint, whose responses are top-level JSON objects rather than
+// the API's usual envelope. Errors are returned as an *OAuthError.
+func callOAuth[T any](ctx context.Context, c *Client, endpoint string, form url.Values) (*T, error) {
+	dest, err := urlPath(c.dnServer, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", dest, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	reqID := resp.Header.Get("X-Request-ID")
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &APIError{e: fmt.Errorf("error reading response body: %s", err), ReqID: reqID}
+	}
+
+	if resp.StatusCode >= 400 {
+		var oe message.OAuthErrorData
+		if err := json.Unmarshal(b, &oe); err != nil || oe.Error == "" {
+			return nil, &APIError{e: fmt.Errorf("received HTTP %d from API without error details\nbody: %s", resp.StatusCode, b), ReqID: reqID}
+		}
+		return nil, &OAuthError{Code: oe.Error, Description: oe.ErrorDescription, StatusCode: resp.StatusCode, ReqID: reqID}
+	}
+
+	var d T
+	if err := json.Unmarshal(b, &d); err != nil {
+		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+	}
+	return &d, nil
+}
+
+// ListEndpointHosts returns the hosts owned by the authenticated endpoint OIDC user. authToken is the
+// access token obtained from EndpointAuthToken.
+func (c *Client) ListEndpointHosts(ctx context.Context, authToken string) (*message.EndpointAuthHostsData, error) {
+	_, d, err := callAPI[message.EndpointAuthHostsData](ctx, c, "GET", message.EndpointAuthHostsEndpoint, nil, bearer(authToken))
+	return d, err
+}
+
+// CreateEndpointHost creates a new host for the authenticated endpoint OIDC user and returns an
+// enrollment code to redeem via Enroll. This is the explicit "add a new device" action.
+func (c *Client) CreateEndpointHost(ctx context.Context, authToken string) (*message.EndpointAuthEnrollData, error) {
+	_, d, err := callAPI[message.EndpointAuthEnrollData](ctx, c, "POST", message.EndpointAuthHostsEndpoint, nil, bearer(authToken))
+	return d, err
+}
+
+// RenewEndpointHost grants an existing host owned by the authenticated endpoint OIDC user a fresh
+// network-access window. No enrollment code is issued: the host fetches its renewed certificate and
+// config through its own (host-key-signed) update flow — call LongPollWait/DoUpdate with the host's
+// stored credentials after this returns.
+func (c *Client) RenewEndpointHost(ctx context.Context, authToken string, hostID string) (*message.EndpointAuthRenewData, error) {
+	endpoint := fmt.Sprintf("%s/%s/renew", message.EndpointAuthHostsEndpoint, url.PathEscape(hostID))
+	_, d, err := callAPI[message.EndpointAuthRenewData](ctx, c, "POST", endpoint, nil, bearer(authToken))
+	return d, err
+}
+
+// bearer returns a request option that sets the Authorization header to the given bearer token.
+func bearer(token string) func(*http.Request) {
+	return func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 }
 
 func urlPath(base, path string) (string, error) {
