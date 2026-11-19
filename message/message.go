@@ -151,9 +151,10 @@ type ReauthenticateResponse struct {
 }
 
 // APIResponse is a standard format for the DN API. It does not apply to the DNClient API.
+// The API sends exactly one of data or errors.
 type APIResponse[T any] struct {
-	Data   T                 `json:"data"`
-	Errors APIResponseErrors `json:"errors"`
+	Data   T                 `json:"data,omitzero"`
+	Errors APIResponseErrors `json:"errors,omitempty"`
 }
 
 // APIResponseError represents a single error returned in an API error response.
@@ -203,6 +204,10 @@ type EnrollRequest struct {
 	NebulaPubkeyP256   []byte    `json:"nebulaPubkeyP256"` // P256 (used for key exchange)
 	HostPubkeyP256     []byte    `json:"hostPubkeyP256"`   // P256 (used for signing)
 	Timestamp          time.Time `json:"timestamp"`
+
+	// Hostname is the enrolling machine's OS hostname. Optional; informational
+	// only, offered to the server as a suggested host name.
+	Hostname string `json:"hostname,omitempty"`
 }
 
 // EnrollResponseData is included in the EnrollResponse.

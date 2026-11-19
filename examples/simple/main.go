@@ -25,8 +25,9 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	c := dnapi.NewClient("api-example/1.0", *server)
 
-	// initial enrollment example
-	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code)
+	// initial enrollment example; hostname is optional metadata
+	hostname, _ := os.Hostname()
+	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code, hostname)
 	if err != nil {
 		logger.Error("Failed to enroll", "error", err)
 		os.Exit(1)

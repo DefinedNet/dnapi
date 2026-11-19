@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,7 +25,7 @@ import (
 	"github.com/slackhq/nebula/cert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v3"
 )
 
 type m map[string]interface{}
@@ -61,6 +62,7 @@ func TestEnroll(t *testing.T) {
 	oidcEmail := "demo@defined.net"
 	oidcExpiresAt := time.Now()
 	counter := uint(5)
+	hostname := "test-machine.local"
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
@@ -70,7 +72,7 @@ func TestEnroll(t *testing.T) {
 			// we need to send this or we'll get an error from the api client
 			"pki": m{"ca": string(caPEM)},
 			// here we reflect values back to the client for test purposes
-			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519},
+			"test": m{"code": req.Code, "dhPubkey": req.NebulaPubkeyX25519, "hostname": req.Hostname},
 		})
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
@@ -112,7 +114,7 @@ func TestEnroll(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, creds, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code)
+	cfg, pkey, creds, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code, hostname)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -133,6 +135,7 @@ func TestEnroll(t *testing.T) {
 		Test struct {
 			Code     string `yaml:"code"`
 			DHPubkey []byte `yaml:"dhPubkey"`
+			Hostname string `yaml:"hostname"`
 		} `yaml:"test"`
 	}
 	err = yaml.Unmarshal(cfg, &y)
@@ -141,6 +144,7 @@ func TestEnroll(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, rest, 0)
 	assert.Equal(t, code, y.Test.Code)
+	assert.Equal(t, hostname, y.Test.Hostname)
 
 	// ensure private key was not inserted into config
 	assert.Empty(t, y.PKI.Key)
@@ -169,8 +173,8 @@ func TestEnroll(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, creds, meta, err = client.Enroll(ctx, testutil.NewTestLogger(), code)
-	require.Errorf(t, err, fmt.Sprintf("unexpected error during enrollment: %s", errorMsg))
+	cfg, pkey, creds, meta, err = client.Enroll(ctx, testutil.NewTestLogger(), code, "")
+	require.EqualError(t, err, "unexpected error during enrollment: "+errorMsg)
 
 	assert.Nil(t, cfg)
 	assert.Nil(t, pkey)
@@ -239,7 +243,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
 	// convert privkey to private key
@@ -500,7 +504,7 @@ func TestDoConfigUpdate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code)
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code, "")
 	require.NoError(t, err)
 
 	orgID := "foobaz"
@@ -627,7 +631,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
 	// convert private key to public key
@@ -867,7 +871,7 @@ func TestCommandResponse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, meta, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, meta, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -972,7 +976,7 @@ func TestStreamCommandResponse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -1101,7 +1105,7 @@ func TestReauthenticate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -1186,8 +1190,29 @@ func TestOverrideTimeout(t *testing.T) {
 	// DO IT
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
-	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123")
+	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123", "")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestDialWithFallback(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(ts.Close)
+	_, port, err := net.SplitHostPort(ts.Listener.Addr().String())
+	require.NoError(t, err)
+
+	// .invalid never resolves (RFC 2606), so the pinned address must be used
+	dial := dialWithFallback(map[string][]string{"api.invalid": {"127.0.0.1"}})
+	conn, err := dial(context.Background(), "tcp", "api.invalid:"+port)
+	require.NoError(t, err)
+	assert.Equal(t, ts.Listener.Addr().String(), conn.RemoteAddr().String())
+	conn.Close()
+
+	// hosts without a fallback surface the DNS error unchanged
+	var dnsErr *net.DNSError
+	_, err = dial(context.Background(), "tcp", "other.invalid:"+port)
+	require.ErrorAs(t, err, &dnsErr)
 }
 
 func TestGetOidcPollCode(t *testing.T) {
@@ -1460,7 +1485,7 @@ func TestEnroll_PluralMeta(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code)
+	_, _, _, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code, "")
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -1529,7 +1554,7 @@ func TestDoUpdate_PluralMeta(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code)
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code, "")
 	require.NoError(t, err)
 
 	orgID := "foobaz"
