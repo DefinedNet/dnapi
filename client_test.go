@@ -63,7 +63,6 @@ func TestEnroll(t *testing.T) {
 	oidcExpiresAt := time.Now()
 	counter := uint(5)
 	hostname := "test-machine.local"
-	ephemeral := true
 	ca, _ := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
@@ -104,7 +103,7 @@ func TestEnroll(t *testing.T) {
 					ID:        hostID,
 					Name:      hostName,
 					IPAddress: hostIP,
-					Ephemeral: &ephemeral,
+					Ephemeral: true,
 				},
 				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 					Email:     oidcEmail,
@@ -159,8 +158,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
-	require.NotNil(t, meta.Host.Ephemeral)
-	assert.True(t, *meta.Host.Ephemeral)
+	assert.True(t, meta.Host.Ephemeral)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	assert.WithinDuration(t, oidcExpiresAt, *meta.EndpointOIDC.ExpiresAt, 1*time.Second)
 
@@ -456,7 +454,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
-	assert.Nil(t, meta.Host.Ephemeral)
+	assert.False(t, meta.Host.Ephemeral)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	assert.Nil(t, meta.EndpointOIDC.ExpiresAt)
 

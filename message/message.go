@@ -247,8 +247,7 @@ type HostHostMetadata struct {
 	Name        string   `json:"name"`
 	IPAddress   string   `json:"ipAddress"`
 	IPAddresses []string `json:"ipAddresses"`
-	// Ephemeral is nil when the API does not report it.
-	Ephemeral *bool `json:"ephemeral,omitempty"`
+	Ephemeral   bool     `json:"ephemeral"`
 }
 
 // HostEndpointOIDCMetadata is included in EnrollResponseData.

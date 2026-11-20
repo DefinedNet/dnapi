@@ -137,8 +137,7 @@ type ConfigHost struct {
 	ID          string
 	Name        string
 	IPAddresses []string
-	// Ephemeral is nil when the API does not report it.
-	Ephemeral *bool
+	Ephemeral   bool
 }
 
 type ConfigEndpointOIDC struct {
