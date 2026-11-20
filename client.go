@@ -610,13 +610,24 @@ func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
 		return fmt.Errorf("failed to marshal DNClient message: %s", err)
 	}
 
-	// The API does not sign this response, and its body is empty.
-	_, err = c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	respBody, err := c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
 	var apiErrors message.APIErrors
 	if errors.As(err, &apiErrors) && len(apiErrors) == 1 && apiErrors[0].Code == "ERR_UNENROLL_NOT_EPHEMERAL" {
 		return ErrNotEphemeral
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	// The API does not sign this response, so check its shape instead: a proxy that redirects the
+	// POST to a login page also ends in a 200.
+	var resp struct {
+		Data *struct{} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil || resp.Data == nil {
+		return fmt.Errorf("unexpected unenroll response: %s", respBody)
+	}
+	return nil
 }
 
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
@@ -666,7 +677,8 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			var errors struct {
 				Errors message.APIResponseErrors
 			}
-			if err := json.Unmarshal(respBody, &errors); err != nil {
+			// Err() is nil for JSON without an errors array, and storing nil panics.
+			if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
 				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
 			} else {
 				sc.err.Store(errors.Errors.Err())

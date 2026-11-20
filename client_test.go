@@ -1049,6 +1049,17 @@ func TestStreamCommandResponse(t *testing.T) {
 	// Err should return the error from the server
 	assert.Error(t, sc.Err())
 
+	// A proxy's JSON error page has no errors array.
+	ts.ExpectStreamingRequest(message.CommandResponse, http.StatusServiceUnavailable, func(r message.RequestWrapper) []byte {
+		return []byte(`{}`)
+	})
+	sc, err = c.StreamCommandResponse(context.Background(), *creds, "responseToken")
+	require.NoError(t, err)
+	_, err = sc.Write([]byte("log line"))
+	require.NoError(t, err)
+	assert.NoError(t, sc.Close())
+	assert.Error(t, sc.Err())
+
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining(), ts.ExpectedRequests())
 }
@@ -1637,6 +1648,14 @@ func TestUnenroll(t *testing.T) {
 	// A proxy's JSON error page has no errors array and must not read as success.
 	for _, body := range []string{`{"message":"Service Unavailable"}`, `{}`, `null`} {
 		ts.ExpectDNClientRequest(message.Unenroll, http.StatusServiceUnavailable, func(r message.RequestWrapper) []byte {
+			return []byte(body)
+		})
+		assert.Error(t, c.Unenroll(ctx, *creds), body)
+	}
+
+	// A proxy that redirects to a login page answers 200 without the API's body.
+	for _, body := range []string{`<html>Sign in</html>`, `{}`} {
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 			return []byte(body)
 		})
 		assert.Error(t, c.Unenroll(ctx, *creds), body)
