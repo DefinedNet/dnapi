@@ -112,6 +112,10 @@ var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
 var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
 var ErrHostBlocked = fmt.Errorf("host is blocked")
 
+// ErrNotEphemeral is returned by Unenroll when the host was not enrolled with an ephemeral join key.
+// Only an administrator can delete such a host.
+var ErrNotEphemeral = fmt.Errorf("only hosts enrolled with an ephemeral join key can unenroll themselves")
+
 type ConfigMeta struct {
 	Org          ConfigOrg
 	Network      ConfigNetwork
@@ -133,6 +137,7 @@ type ConfigHost struct {
 	ID          string
 	Name        string
 	IPAddresses []string
+	Ephemeral   bool
 }
 
 type ConfigEndpointOIDC struct {
@@ -227,6 +232,7 @@ func (c *Client) Enroll(ctx context.Context, logger *slog.Logger, code string, h
 			ID:          r.HostID,
 			Name:        r.Host.Name,
 			IPAddresses: mergeIPAddresses(r.Host.IPAddresses, r.Host.IPAddress),
+			Ephemeral:   r.Host.Ephemeral,
 		},
 	}
 
@@ -401,6 +407,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 			ID:          result.Host.ID,
 			Name:        result.Host.Name,
 			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
+			Ephemeral:   result.Host.Ephemeral,
 		},
 	}
 
@@ -509,6 +516,7 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 			ID:          result.Host.ID,
 			Name:        result.Host.Name,
 			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
+			Ephemeral:   result.Host.Ephemeral,
 		},
 	}
 
@@ -593,6 +601,34 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 	return &response, nil
 }
 
+// Unenroll deletes the calling host from its network. A host that no longer exists returns
+// ErrInvalidCredentials, and a host not enrolled with an ephemeral join key returns ErrNotEphemeral.
+func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
+	value, err := json.Marshal(message.UnenrollRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	respBody, err := c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	var apiErrors message.APIErrors
+	if errors.As(err, &apiErrors) && len(apiErrors) == 1 && apiErrors[0].Code == "ERR_UNENROLL_NOT_EPHEMERAL" {
+		return ErrNotEphemeral
+	}
+	if err != nil {
+		return err
+	}
+
+	// The API does not sign this response, so check its shape instead: a proxy that redirects the
+	// POST to a login page also ends in a 200.
+	var resp struct {
+		Data *struct{} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil || resp.Data == nil {
+		return fmt.Errorf("unexpected unenroll response: %s", respBody)
+	}
+	return nil
+}
+
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
 // On success, it returns a StreamController to interact with the request. On error, the error is returned.
 func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) (*StreamController, error) {
@@ -640,7 +676,8 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			var errors struct {
 				Errors message.APIResponseErrors
 			}
-			if err := json.Unmarshal(respBody, &errors); err != nil {
+			// Err() is nil for JSON without an errors array, and storing nil panics.
+			if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
 				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
 			} else {
 				sc.err.Store(errors.Errors.Err())
@@ -687,7 +724,8 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		var errors struct {
 			Errors message.APIResponseErrors
 		}
-		if err := json.Unmarshal(respBody, &errors); err != nil {
+		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
+		if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
 			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
 		}
 		return nil, errors.Errors.Err()

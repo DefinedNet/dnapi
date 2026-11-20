@@ -15,6 +15,7 @@ const (
 	LongPollWait    = "LongPollWait"
 	CommandResponse = "CommandResponse"
 	Reauthenticate  = "Reauthenticate"
+	Unenroll        = "Unenroll"
 )
 
 // EndpointV1 is the version 1 DNClient API endpoint.
@@ -145,6 +146,9 @@ type ReauthenticateRequest struct {
 	// Add fields as needed
 }
 
+// UnenrollRequest is the request sent for an Unenroll request.
+type UnenrollRequest struct{}
+
 // ReauthenticateResponse is the response message associated with a Reauthenticate request.
 type ReauthenticateResponse struct {
 	LoginURL string `json:"loginURL"`
@@ -243,6 +247,7 @@ type HostHostMetadata struct {
 	Name        string   `json:"name"`
 	IPAddress   string   `json:"ipAddress"`
 	IPAddresses []string `json:"ipAddresses"`
+	Ephemeral   bool     `json:"ephemeral"`
 }
 
 // HostEndpointOIDCMetadata is included in EnrollResponseData.
