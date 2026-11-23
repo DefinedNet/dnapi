@@ -27,7 +27,7 @@ func main() {
 
 	// initial enrollment example; hostname is optional metadata
 	hostname, _ := os.Hostname()
-	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code, hostname)
+	config, pkey, creds, meta, err := c.Enroll(context.Background(), logger, *code, hostname, dnapi.DefaultKeyMaker)
 	if err != nil {
 		logger.Error("Failed to enroll", "error", err)
 		os.Exit(1)
@@ -64,7 +64,7 @@ func main() {
 			// be careful not to blow away creds in case err != nil
 			// another option is to pass credentials by reference and let DoUpdate modify the struct if successful but
 			// this makes it less obvious to the caller that they need to save the new credentials to disk
-			config, pkey, newCreds, meta, err := c.DoUpdate(context.Background(), *creds)
+			config, pkey, newCreds, meta, err := c.DoUpdate(context.Background(), *creds, dnapi.DefaultKeyMaker)
 			if err != nil {
 				logger.Error("Failed to perform update", "error", err)
 				continue

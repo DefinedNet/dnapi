@@ -3,87 +3,9 @@ package keys
 import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/fips140"
 	"fmt"
+	"io"
 )
-
-// Keys contains a set of P256 and X25519/Ed25519 keys. Only one set is used,
-// depending on the network the host is enrolled in. At the time of enrollment
-// clients do not know which curve the network uses, so both keys must be
-// generated.
-//
-// Nebula keys are returned in PEM format as the public keys is sent off to the
-// DN API and the private Nebula key is written to disk and parsed by the
-// Nebula library. The host keys will be used to sign requests.
-type Keys struct {
-	// 25519 Curve
-	NebulaX25519PublicKeyPEM  []byte     // ECDH (Nebula)
-	NebulaX25519PrivateKeyPEM []byte     // ECDH (Nebula)
-	HostEd25519PublicKey      PublicKey  // EdDSA (DN API)
-	HostEd25519PrivateKey     PrivateKey // EdDSA (DN API)
-
-	// P256 Curve
-	NebulaP256PublicKeyPEM  []byte     // ECDH (Nebula)
-	NebulaP256PrivateKeyPEM []byte     // ECDH (Nebula)
-	HostP256PublicKey       PublicKey  // ECDSA (DN API)
-	HostP256PrivateKey      PrivateKey // ECDSA (DN API)
-}
-
-func New() (*Keys, error) {
-	k := &Keys{}
-
-	// P256 keys are FIPS 140-approved and are always generated. The DN API
-	// selects which key set to use based on the enrolled network's curve.
-	ecdhP256PublicKeyPEM, ecdhP256PrivateKeyPEM, ecdsaP256PublicKey, ecdsaP256PrivateKey, err := newKeysP256()
-	if err != nil {
-		return nil, err
-	}
-
-	ecdsaP256PublicKeyI, err := NewPublicKey(ecdsaP256PublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	ecdsaP256PrivateKeyI, err := NewPrivateKey(ecdsaP256PrivateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	k.NebulaP256PublicKeyPEM = ecdhP256PublicKeyPEM
-	k.NebulaP256PrivateKeyPEM = ecdhP256PrivateKeyPEM
-	k.HostP256PublicKey = ecdsaP256PublicKeyI
-	k.HostP256PrivateKey = ecdsaP256PrivateKeyI
-
-	// X25519/Ed25519 are not FIPS 140-approved. Under GODEBUG=fips140=only,
-	// crypto/ecdh refuses to generate an X25519 key at all, which would make
-	// enrollment fail before it ever reaches the API. When FIPS mode is enabled
-	// we therefore only offer P256 keys - FIPS networks are always P256, and the
-	// DN API accepts an enroll request that omits the 25519 keys (see the
-	// server-side NebulaHostPubkeys.HasKeys/GetNebulaPubkey handling).
-	if !fips140.Enabled() {
-		x25519PublicKeyPEM, x25519PrivateKeyPEM, ed25519PublicKey, ed25519PrivateKey, err := newKeys25519()
-		if err != nil {
-			return nil, err
-		}
-
-		ed25519PublicKeyI, err := NewPublicKey(ed25519PublicKey)
-		if err != nil {
-			return nil, err
-		}
-
-		ed25519PrivateKeyI, err := NewPrivateKey(ed25519PrivateKey)
-		if err != nil {
-			return nil, err
-		}
-
-		k.NebulaX25519PublicKeyPEM = x25519PublicKeyPEM
-		k.NebulaX25519PrivateKeyPEM = x25519PrivateKeyPEM
-		k.HostEd25519PublicKey = ed25519PublicKeyI
-		k.HostEd25519PrivateKey = ed25519PrivateKeyI
-	}
-
-	return k, nil
-}
 
 // PublicKey is a wrapper around public keys.
 type PublicKey interface {
@@ -130,4 +52,12 @@ func NewPrivateKey(k any) (PrivateKey, error) {
 	default:
 		return nil, fmt.Errorf("unsupported private key type: %T", k)
 	}
+}
+
+// Close releases the resources of k, if k implements io.Closer
+func Close(k PrivateKey) error {
+	if c, ok := k.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }

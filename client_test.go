@@ -114,7 +114,7 @@ func TestEnroll(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, creds, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code, hostname)
+	cfg, pkey, creds, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code, hostname, DefaultKeyMaker)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -173,7 +173,7 @@ func TestEnroll(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, creds, meta, err = client.Enroll(ctx, testutil.NewTestLogger(), code, "")
+	cfg, pkey, creds, meta, err = client.Enroll(ctx, testutil.NewTestLogger(), code, "", DefaultKeyMaker)
 	require.EqualError(t, err, "unexpected error during enrollment: "+errorMsg)
 
 	assert.Nil(t, cfg)
@@ -243,7 +243,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	// convert privkey to private key
@@ -266,12 +266,12 @@ func TestDoUpdate(t *testing.T) {
 	})
 
 	// Create a new, invalid requesting authentication key
-	nk, err := keys.New()
+	edHost, err := DefaultKeyMaker.NewHostKey(message.NetworkCurve25519)
 	require.NoError(t, err)
 
 	invalidCreds := keys.Credentials{
 		HostID:      creds.HostID,
-		PrivateKey:  nk.HostEd25519PrivateKey,
+		PrivateKey:  edHost,
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
@@ -309,7 +309,7 @@ func TestDoUpdate(t *testing.T) {
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
-		nk, err := keys.New()
+		edHost, err := DefaultKeyMaker.NewHostKey(message.NetworkCurve25519)
 		require.NoError(t, err)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
@@ -317,7 +317,7 @@ func TestDoUpdate(t *testing.T) {
 		err = ts.SetEdPubkey(pubkey)
 		require.NoError(t, err)
 
-		sig, err := nk.HostEd25519PrivateKey.Sign(rawRes)
+		sig, err := edHost.Sign(rawRes)
 		require.NoError(t, err)
 
 		return jsonMarshal(message.SignedResponseWrapper{
@@ -331,7 +331,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -380,7 +380,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, _, err = c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err = c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -439,7 +439,7 @@ func TestDoUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, meta, err := c.DoUpdate(ctx, *creds)
+	_, _, _, meta, err := c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -504,7 +504,7 @@ func TestDoConfigUpdate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code, "")
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code, "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	orgID := "foobaz"
@@ -556,7 +556,7 @@ func TestDoConfigUpdate(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, meta, err := c.DoConfigUpdate(ctx, *creds)
+	_, _, meta, err := c.DoConfigUpdate(ctx, *creds, DefaultKeyMaker)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -631,7 +631,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	// convert private key to public key
@@ -654,11 +654,11 @@ func TestDoUpdate_P256(t *testing.T) {
 	})
 
 	// Create a new, invalid requesting authentication key
-	nk, err := keys.New()
+	p256Host, err := DefaultKeyMaker.NewHostKey(message.NetworkCurveP256)
 	require.NoError(t, err)
 	invalidCreds := keys.Credentials{
 		HostID:      creds.HostID,
-		PrivateKey:  nk.HostP256PrivateKey,
+		PrivateKey:  p256Host,
 		Counter:     creds.Counter,
 		TrustedKeys: creds.TrustedKeys,
 	}
@@ -680,7 +680,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		}
 		rawRes := jsonMarshal(newConfigResponse)
 
-		nk, err := keys.New()
+		p256Host, err := DefaultKeyMaker.NewHostKey(message.NetworkCurveP256)
 		require.NoError(t, err)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
@@ -688,7 +688,7 @@ func TestDoUpdate_P256(t *testing.T) {
 		err = ts.SetP256Pubkey(pubkey)
 		require.NoError(t, err)
 
-		sig, err := nk.HostP256PrivateKey.Sign(rawRes)
+		sig, err := p256Host.Sign(rawRes)
 		if err != nil {
 			return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
 				Errors: message.APIResponseErrors{{
@@ -709,7 +709,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -753,7 +753,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	cfg, pkey, newCreds, _, err = c.DoUpdate(ctx, *creds)
+	cfg, pkey, newCreds, _, err = c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.Error(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -807,7 +807,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, _, err = c.DoUpdate(ctx, *creds)
+	_, _, _, _, err = c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -871,7 +871,7 @@ func TestCommandResponse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, meta, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	config, pkey, creds, meta, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -976,7 +976,7 @@ func TestStreamCommandResponse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -1105,7 +1105,7 @@ func TestReauthenticate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	config, pkey, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	// make sure all credential values were set
@@ -1190,7 +1190,7 @@ func TestOverrideTimeout(t *testing.T) {
 	// DO IT
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
-	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123", "")
+	_, _, _, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "ABC123", "", DefaultKeyMaker)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
@@ -1422,7 +1422,7 @@ func TestEnroll_PluralMeta(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code, "")
+	_, _, _, meta, err := client.Enroll(ctx, testutil.NewTestLogger(), code, "", DefaultKeyMaker)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -1491,7 +1491,7 @@ func TestDoUpdate_PluralMeta(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code, "")
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), code, "", DefaultKeyMaker)
 	require.NoError(t, err)
 
 	orgID := "foobaz"
@@ -1538,7 +1538,7 @@ func TestDoUpdate_PluralMeta(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, _, meta, err := c.DoUpdate(ctx, *creds)
+	_, _, _, meta, err := c.DoUpdate(ctx, *creds, DefaultKeyMaker)
 	require.NoError(t, err)
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
@@ -1563,4 +1563,30 @@ func TestNebulaPemBanners(t *testing.T) {
 	ca, _ = dnapitest.NebulaCACertP256()
 	pub = ca.MarshalPublicKeyPEM()
 	assert.Contains(t, string(pub), NebulaECDSAP256PublicKeyBanner)
+}
+
+// otherKey is a host key type that the update functions cannot replace.
+type otherKey struct{ keys.PrivateKey }
+
+type otherPublicKey struct{ keys.PublicKey }
+
+func (k otherKey) Public() keys.PublicKey { return otherPublicKey{k.PrivateKey.Public()} }
+
+func TestUpdatesRefuseUnknownKeyTypes(t *testing.T) {
+	p256Host, err := DefaultKeyMaker.NewHostKey(message.NetworkCurveP256)
+	require.NoError(t, err)
+	creds := keys.Credentials{HostID: "foobar", PrivateKey: otherKey{p256Host}, Counter: 1}
+	// There is no server: the updates refuse the key type before they send a request
+	c := NewClient("testClient", "http://127.0.0.1:1")
+
+	// A host key on neither curve is refused before the KeyMaker makes any keys
+	for _, km := range []KeyMaker{DefaultKeyMaker, &fakeKeyMaker{}} {
+		_, _, _, _, err = c.DoUpdate(context.Background(), creds, km)
+		require.ErrorContains(t, err, "unsupported host key type dnapi.otherPublicKey")
+		_, _, _, err = c.DoConfigUpdate(context.Background(), creds, km)
+		require.ErrorContains(t, err, "unsupported host key type dnapi.otherPublicKey")
+		if fk, ok := km.(*fakeKeyMaker); ok {
+			require.Empty(t, fk.made, "keys were made for an update that could not use them")
+		}
+	}
 }
