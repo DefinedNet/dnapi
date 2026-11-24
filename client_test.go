@@ -1628,6 +1628,16 @@ func TestUnenroll(t *testing.T) {
 	})
 	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrNotEphemeral)
 
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusForbidden, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.APIResponse[struct{}]{
+			Errors: message.APIResponseErrors{
+				{Code: "ERR_OTHER", Message: "something else"},
+				{Code: "ERR_UNENROLL_NOT_EPHEMERAL", Message: "not ephemeral"},
+			},
+		})
+	})
+	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrNotEphemeral)
+
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusUnauthorized, func(r message.RequestWrapper) []byte {
 		return []byte("Unauthorized")
 	})

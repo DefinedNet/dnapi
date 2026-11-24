@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -611,7 +612,9 @@ func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
 
 	respBody, err := c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
 	var apiErrors message.APIErrors
-	if errors.As(err, &apiErrors) && len(apiErrors) == 1 && apiErrors[0].Code == "ERR_UNENROLL_NOT_EPHEMERAL" {
+	if errors.As(err, &apiErrors) && slices.ContainsFunc(apiErrors, func(e message.APIResponseError) bool {
+		return e.Code == "ERR_UNENROLL_NOT_EPHEMERAL"
+	}) {
 		return ErrNotEphemeral
 	}
 	if err != nil {
