@@ -621,13 +621,19 @@ func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
 		return err
 	}
 
-	// The API does not sign this response, so check its shape instead: a proxy that redirects the
-	// POST to a login page also ends in a 200.
-	var resp struct {
-		Data *struct{} `json:"data"`
+	resultWrapper, err := verifySignature(respBody, creds)
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(respBody, &resp); err != nil || resp.Data == nil {
-		return fmt.Errorf("unexpected unenroll response: %s", truncateBody(respBody))
+
+	var response message.UnenrollResponse
+	if err := json.Unmarshal(resultWrapper.Data.Message, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal DNClient response: %s", err)
+	}
+	// Every host on the network trusts the same CA keys, so a signed response only proves this
+	// host's deletion if it names this host.
+	if response.HostID != creds.HostID {
+		return fmt.Errorf("unenroll response is for host %q, not %q", response.HostID, creds.HostID)
 	}
 	return nil
 }

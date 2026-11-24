@@ -1590,7 +1590,7 @@ func TestUnenroll(t *testing.T) {
 	ts := dnapitest.NewServer(useragent)
 	t.Cleanup(func() { ts.Close() })
 
-	ca, _ := dnapitest.NebulaCACert()
+	ca, caPrivkey := dnapitest.NebulaCACert()
 	caPEM, err := ca.MarshalPEM()
 	require.NoError(t, err)
 
@@ -1615,12 +1615,35 @@ func TestUnenroll(t *testing.T) {
 	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
-	// The API answers success with an empty, unsigned body.
+	signedResponse := func(hostID string, key ed25519.PrivateKey) []byte {
+		rawRes := jsonMarshal(message.UnenrollResponse{HostID: hostID})
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: ed25519.Sign(key, rawRes),
+			},
+		})
+	}
+
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 		assert.JSONEq(t, "{}", string(r.Value))
-		return []byte(`{"data":{}}`)
+		return signedResponse(creds.HostID, caPrivkey)
 	})
 	require.NoError(t, c.Unenroll(ctx, *creds))
+
+	_, otherPrivkey := dnapitest.NebulaCACert()
+	for name, body := range map[string][]byte{
+		"unsigned":        []byte(`{"data":{}}`),
+		"wrong signature": signedResponse(creds.HostID, otherPrivkey),
+		// A replayed response for another host on the same network carries a valid signature.
+		"other host": signedResponse("otherhost", caPrivkey),
+	} {
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+			return body
+		})
+		assert.Error(t, c.Unenroll(ctx, *creds), name)
+	}
 
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusForbidden, func(r message.RequestWrapper) []byte {
 		return jsonMarshal(message.APIResponse[struct{}]{

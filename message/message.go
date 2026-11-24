@@ -149,6 +149,11 @@ type ReauthenticateRequest struct {
 // UnenrollRequest is the request sent for an Unenroll request.
 type UnenrollRequest struct{}
 
+// UnenrollResponse is the signed response message associated with an Unenroll request.
+type UnenrollResponse struct {
+	HostID string `json:"hostID"`
+}
+
 // ReauthenticateResponse is the response message associated with a Reauthenticate request.
 type ReauthenticateResponse struct {
 	LoginURL string `json:"loginURL"`
