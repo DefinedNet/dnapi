@@ -423,6 +423,7 @@ func TestDoUpdate(t *testing.T) {
 				ID:        hostID,
 				Name:      hostName,
 				IPAddress: hostIP,
+				Ephemeral: true,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 				Email:     oidcEmail,
@@ -455,7 +456,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
-	assert.False(t, meta.Host.Ephemeral)
+	assert.True(t, meta.Host.Ephemeral)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	assert.Nil(t, meta.EndpointOIDC.ExpiresAt)
 
@@ -541,6 +542,7 @@ func TestDoConfigUpdate(t *testing.T) {
 				ID:        hostID,
 				Name:      hostName,
 				IPAddress: hostIP,
+				Ephemeral: true,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 				Email:     oidcEmail,
@@ -572,6 +574,7 @@ func TestDoConfigUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
+	assert.True(t, meta.Host.Ephemeral)
 	require.NotNil(t, meta.EndpointOIDC)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	require.NotNil(t, meta.EndpointOIDC.ExpiresAt)
