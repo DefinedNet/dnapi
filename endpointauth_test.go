@@ -43,7 +43,7 @@ func TestEndpointAuthSecrets_ParseCallback(t *testing.T) {
 	for _, q := range []url.Values{
 		{"code": {"eaexch-abc"}, "iss": {iss}},
 		{"code": {"eaexch-abc"}, "state": {"other-state"}, "iss": {iss}},
-		{"error": {"access_denied"}, "error_description": {"ERR_OIDC_EXCHANGE_CODE"}, "state": {"other-state"}, "iss": {iss}},
+		{"error": {"access_denied"}, "dn_error": {"ERR_OIDC_EXCHANGE_CODE"}, "state": {"other-state"}, "iss": {iss}},
 	} {
 		_, err := s.ParseCallback(q, iss)
 		assert.ErrorIs(t, err, ErrEndpointAuthStateMismatch, "query %v", q)
@@ -58,16 +58,19 @@ func TestEndpointAuthSecrets_ParseCallback(t *testing.T) {
 		assert.ErrorIs(t, err, ErrEndpointAuthIssuerMismatch, "query %v", q)
 	}
 
-	// A failure, reported with the API's error code in the description.
-	_, err = s.ParseCallback(url.Values{"error": {"access_denied"}, "error_description": {"ERR_OIDC_MISSING_CLAIMS"}, "state": {"the-state"}, "iss": {iss}}, iss)
+	// A failure, reported with the API's error code in dn_error and text in the description.
+	_, err = s.ParseCallback(url.Values{
+		"error": {"access_denied"}, "dn_error": {"ERR_OIDC_MISSING_CLAIMS"}, "error_description": {"missing claims: email"},
+		"state": {"the-state"}, "iss": {iss},
+	}, iss)
 	var cbErr *EndpointAuthCallbackError
 	require.ErrorAs(t, err, &cbErr)
-	assert.Equal(t, "ERR_OIDC_MISSING_CLAIMS", cbErr.Code)
+	assert.Equal(t, &EndpointAuthCallbackError{Code: "ERR_OIDC_MISSING_CLAIMS", Description: "missing claims: email"}, cbErr)
 
-	// Without a description, the OAuth error code.
-	_, err = s.ParseCallback(url.Values{"error": {"server_error"}, "state": {"the-state"}, "iss": {iss}}, iss)
+	// Without an API error code, the OAuth error code. The description is never taken for a code.
+	_, err = s.ParseCallback(url.Values{"error": {"server_error"}, "error_description": {"The login failed."}, "state": {"the-state"}, "iss": {iss}}, iss)
 	require.ErrorAs(t, err, &cbErr)
-	assert.Equal(t, "server_error", cbErr.Code)
+	assert.Equal(t, &EndpointAuthCallbackError{Code: "server_error", Description: "The login failed."}, cbErr)
 
 	// Neither a code nor an error.
 	_, err = s.ParseCallback(url.Values{"state": {"the-state"}, "iss": {iss}}, iss)

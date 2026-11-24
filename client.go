@@ -870,12 +870,10 @@ func (c *Client) EndpointAuthorize(ctx context.Context, clientID, redirectURI st
 	if err != nil {
 		return "", err
 	}
-	authorizeURL, err := url.Parse(meta.AuthorizationEndpoint)
-	if err != nil || !isWebURL(authorizeURL) || authorizeURL.RawQuery != "" || authorizeURL.Fragment != "" {
-		return "", fmt.Errorf("unexpected authorization endpoint from API: %q", meta.AuthorizationEndpoint)
-	}
+	// OAuthServerMetadata checked the endpoint, so it parses.
+	authorizeURL, _ := url.Parse(meta.AuthorizationEndpoint)
 
-	d, err := callOAuth[message.PushedAuthorizationData](ctx, c, message.OAuthPushedRequestEndpoint, form)
+	d, err := callOAuth[message.PushedAuthorizationData](ctx, c, meta.PushedAuthorizationRequestEndpoint, form)
 	if err != nil {
 		return "", err
 	}
@@ -899,7 +897,9 @@ func isWebURL(u *url.URL) bool {
 }
 
 // OAuthServerMetadata fetches the authorization server metadata, checking that it describes this
-// API's authorization server (RFC 8414 section 3.3).
+// API's authorization server (RFC 8414 section 3.3) and names every endpoint a login uses as a web
+// URL. A document missing one is refused rather than filled in with a default path, so that the
+// paths stay the server's to choose.
 func (c *Client) OAuthServerMetadata(ctx context.Context) (*message.OAuthServerMetadata, error) {
 	dest, err := urlPath(c.dnServer, message.OAuthServerMetadataEndpoint)
 	if err != nil {
@@ -930,6 +930,16 @@ func (c *Client) OAuthServerMetadata(ctx context.Context) (*message.OAuthServerM
 	if meta.Issuer != c.OAuthIssuer() {
 		return nil, fmt.Errorf("authorization server metadata is for issuer %q, not %q", meta.Issuer, c.OAuthIssuer())
 	}
+	for _, e := range []struct{ name, url string }{
+		{"authorization", meta.AuthorizationEndpoint},
+		{"pushed authorization request", meta.PushedAuthorizationRequestEndpoint},
+		{"token", meta.TokenEndpoint},
+	} {
+		u, err := url.Parse(e.url)
+		if err != nil || !isWebURL(u) || u.RawQuery != "" || u.Fragment != "" {
+			return nil, fmt.Errorf("unexpected %s endpoint from API: %q", e.name, e.url)
+		}
+	}
 	return &meta, nil
 }
 
@@ -937,7 +947,11 @@ func (c *Client) OAuthServerMetadata(ctx context.Context) (*message.OAuthServerM
 // user auth token. clientID and redirectURI must be the ones passed to EndpointAuthorize, and s the
 // same secrets. A code is good for one attempt only, whether or not it succeeds.
 func (c *Client) EndpointAuthToken(ctx context.Context, clientID, redirectURI, code string, s *EndpointAuthSecrets) (*message.OAuthTokenData, error) {
-	return callOAuth[message.OAuthTokenData](ctx, c, message.OAuthTokenEndpoint, url.Values{
+	meta, err := c.OAuthServerMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return callOAuth[message.OAuthTokenData](ctx, c, meta.TokenEndpoint, url.Values{
 		"grant_type":    {"authorization_code"},
 		"client_id":     {clientID},
 		"code":          {code},
@@ -962,14 +976,11 @@ func (e *OAuthError) Error() string {
 	return fmt.Sprintf("oauth error %s (HTTP %d): %s", e.Code, e.StatusCode, e.Description)
 }
 
-// callOAuth posts a form to an OAuth endpoint, whose responses are top-level JSON objects rather than
-// the API's usual envelope. Errors are returned as an *OAuthError.
+// callOAuth posts a form to an OAuth endpoint, the absolute URL the server metadata gives for it.
+// Its responses are top-level JSON objects rather than the API's usual envelope. Errors are returned
+// as an *OAuthError.
 func callOAuth[T any](ctx context.Context, c *Client, endpoint string, form url.Values) (*T, error) {
-	dest, err := urlPath(c.dnServer, endpoint)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", dest, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}

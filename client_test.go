@@ -1320,12 +1320,13 @@ func TestEndpointTokenFlowV2(t *testing.T) {
 	require.NoError(t, err)
 	const redirectURI = "http://127.0.0.1:49152/callback"
 
-	// the authorization endpoint comes from the server metadata
+	// every endpoint comes from the server metadata
+	meta := ts.OAuthServerMetadata("https://auth.example.com/oauth/authorize")
 	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
 		req := r.(dnapitest.APIRequest)
 		assert.Equal(t, "GET", req.Method)
 		assert.Equal(t, message.OAuthServerMetadataEndpoint, req.Path)
-		return jsonMarshal(message.OAuthServerMetadata{Issuer: ts.URL, AuthorizationEndpoint: "https://auth.example.com/oauth/authorize"})
+		return jsonMarshal(meta)
 	})
 
 	// the pushed authorization request sends the client, redirect URI, PKCE challenge, state, and
@@ -1333,7 +1334,7 @@ func TestEndpointTokenFlowV2(t *testing.T) {
 	ts.ExpectAPIRequest(http.StatusCreated, func(r any) []byte {
 		req := r.(dnapitest.APIRequest)
 		assert.Equal(t, "POST", req.Method)
-		assert.Equal(t, message.OAuthPushedRequestEndpoint, req.Path)
+		assert.Equal(t, dnapitest.OAuthPushedRequestPath, req.Path)
 		assert.Equal(t, "application/x-www-form-urlencoded", req.Header.Get("Content-Type"))
 		form, err := url.ParseQuery(string(req.Body))
 		require.NoError(t, err)
@@ -1353,18 +1354,31 @@ func TestEndpointTokenFlowV2(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://auth.example.com/oauth/authorize?client_id=dnclient&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Aoapar-x", authorizeURL)
 
-	// an authorization endpoint that is not a web URL is refused, before anything is pushed
-	for _, endpoint := range []string{"file:///etc/passwd", "javascript:alert(1)", "http://auth.example.com/oauth/authorize", "https://user@auth.example.com/oauth/authorize"} {
-		ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
-			return jsonMarshal(message.OAuthServerMetadata{Issuer: ts.URL, AuthorizationEndpoint: endpoint})
-		})
-		_, err = client.EndpointAuthorize(ctx, message.OAuthClientDNClient, redirectURI, secrets, "")
-		require.ErrorContains(t, err, "unexpected authorization endpoint", endpoint)
+	// an endpoint that is missing or not a web URL is refused, before anything is pushed: there is
+	// no default path to fall back to
+	bad := []string{"", "/oauth/par", "file:///etc/passwd", "javascript:alert(1)", "http://auth.example.com/oauth/authorize", "https://user@auth.example.com/oauth/authorize"}
+	for _, field := range []struct {
+		name string
+		set  func(*message.OAuthServerMetadata, string)
+	}{
+		{"authorization", func(m *message.OAuthServerMetadata, v string) { m.AuthorizationEndpoint = v }},
+		{"pushed authorization request", func(m *message.OAuthServerMetadata, v string) { m.PushedAuthorizationRequestEndpoint = v }},
+		{"token", func(m *message.OAuthServerMetadata, v string) { m.TokenEndpoint = v }},
+	} {
+		for _, endpoint := range bad {
+			badMeta := meta
+			field.set(&badMeta, endpoint)
+			ts.ExpectAPIRequest(http.StatusOK, func(any) []byte { return jsonMarshal(badMeta) })
+			_, err = client.EndpointAuthorize(ctx, message.OAuthClientDNClient, redirectURI, secrets, "")
+			require.ErrorContains(t, err, "unexpected "+field.name+" endpoint", endpoint)
+		}
 	}
 
 	// metadata for another issuer is refused, before anything is pushed
 	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
-		return jsonMarshal(message.OAuthServerMetadata{Issuer: "https://evil.example", AuthorizationEndpoint: "https://evil.example/oauth/authorize"})
+		evil := meta
+		evil.Issuer = "https://evil.example"
+		return jsonMarshal(evil)
 	})
 	_, err = client.EndpointAuthorize(ctx, message.OAuthClientDNClient, redirectURI, secrets, "")
 	require.ErrorContains(t, err, "issuer")
@@ -1373,11 +1387,13 @@ func TestEndpointTokenFlowV2(t *testing.T) {
 	code, err := secrets.ParseCallback(url.Values{"code": {"eaexch-code"}, "state": {secrets.State}, "iss": {ts.URL}}, client.OAuthIssuer())
 	require.NoError(t, err)
 
-	// the token request sends the code, client, redirect URI and verifier
+	// the token request goes to the token endpoint from the metadata, and sends the code, client,
+	// redirect URI and verifier
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte { return jsonMarshal(meta) })
 	ts.ExpectAPIRequest(http.StatusOK, func(r any) []byte {
 		req := r.(dnapitest.APIRequest)
 		assert.Equal(t, "POST", req.Method)
-		assert.Equal(t, message.OAuthTokenEndpoint, req.Path)
+		assert.Equal(t, dnapitest.OAuthTokenPath, req.Path)
 		form, err := url.ParseQuery(string(req.Body))
 		require.NoError(t, err)
 		assert.Equal(t, url.Values{
@@ -1401,6 +1417,7 @@ func TestEndpointTokenFlowV2(t *testing.T) {
 	}, tok)
 
 	// a failed redemption is an OAuthError
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte { return jsonMarshal(meta) })
 	ts.ExpectAPIRequest(http.StatusBadRequest, func(any) []byte {
 		return jsonMarshal(message.OAuthErrorData{Error: "invalid_grant", ErrorDescription: "invalid authorization code"})
 	})

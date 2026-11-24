@@ -276,21 +276,22 @@ type EndpointAuthPollData struct {
 
 // Endpoint SSO login is an OAuth 2.0 authorization server for native apps (RFC 8252). The client
 // pushes an authorization request with a PKCE challenge, state and a redirect URI registered for
-// it (RFC 9126), opens the authorization endpoint (from the server metadata) in the system browser,
-// and receives an authorization code on that redirect URI, which it redeems at the token endpoint
-// for an endpoint OIDC user auth token. There is no poll: a login link forwarded to someone else
-// delivers its result to their device, not the sender's.
-const (
-	OAuthServerMetadataEndpoint = "/.well-known/oauth-authorization-server"
-	OAuthPushedRequestEndpoint  = "/oauth/par"
-	OAuthTokenEndpoint          = "/oauth/token"
-)
+// it (RFC 9126), opens the authorization endpoint in the system browser, and receives an
+// authorization code on that redirect URI, which it redeems at the token endpoint for an endpoint
+// OIDC user auth token. There is no poll: a login link forwarded to someone else delivers its
+// result to their device, not the sender's.
+//
+// Only the metadata document's location is fixed. Every other endpoint is read from it, so the
+// server can move or split them without a client release.
+const OAuthServerMetadataEndpoint = "/.well-known/oauth-authorization-server"
 
 // OAuthServerMetadata is the part of the authorization server metadata (RFC 8414) a client uses.
 // The authorization endpoint is a page of the login frontend, on a different host from the API.
 type OAuthServerMetadata struct {
-	Issuer                string `json:"issuer"`
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	Issuer                             string `json:"issuer"`
+	AuthorizationEndpoint              string `json:"authorization_endpoint"`
+	PushedAuthorizationRequestEndpoint string `json:"pushed_authorization_request_endpoint"`
+	TokenEndpoint                      string `json:"token_endpoint"`
 }
 
 // OAuthClientDNClient is the client ID of the desktop client, whose registered redirect URI is
@@ -308,13 +309,13 @@ const OAuthMobileCallbackPath = "/oauth/callback/android"
 // network they signed in to.
 const OAuthScopeEndpointHosts = "endpoint:hosts"
 
-// PushedAuthorizationData is returned by OAuthPushedRequestEndpoint.
+// PushedAuthorizationData is returned by the pushed authorization request endpoint.
 type PushedAuthorizationData struct {
 	RequestURI string `json:"request_uri"`
 	ExpiresIn  int    `json:"expires_in"`
 }
 
-// OAuthTokenData is returned by OAuthTokenEndpoint. AccessToken is an endpoint OIDC user auth token
+// OAuthTokenData is returned by the token endpoint. AccessToken is an endpoint OIDC user auth token
 // used to authenticate the host-management endpoints below. It is short-lived (ExpiresIn seconds)
 // and meant for the burst of calls right after login; there is no refresh token.
 //

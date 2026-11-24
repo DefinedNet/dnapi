@@ -23,9 +23,11 @@ var ErrEndpointAuthIssuerMismatch = errors.New("endpoint auth callback issuer do
 
 // EndpointAuthCallbackError is returned by EndpointAuthSecrets.ParseCallback when the authorization
 // response reports that the login failed. Code is the API error code (e.g. ERR_OIDC_MISSING_CLAIMS)
-// when the server gave one, or else the OAuth error code (e.g. access_denied).
+// when the server gave one, or else the OAuth error code (e.g. access_denied). Description is the
+// server's human-readable explanation, if any.
 type EndpointAuthCallbackError struct {
-	Code string
+	Code        string
+	Description string
 }
 
 func (e *EndpointAuthCallbackError) Error() string {
@@ -77,11 +79,13 @@ func (s *EndpointAuthSecrets) ParseCallback(query url.Values, issuer string) (st
 	}
 
 	if e := query.Get("error"); e != "" {
-		// The API puts its own error code in the description.
-		if desc := query.Get("error_description"); desc != "" {
-			return "", &EndpointAuthCallbackError{Code: desc}
+		// The API puts its own error code in a parameter of its own; error_description is text for
+		// people (RFC 6749 section 4.1.2.1).
+		cbErr := &EndpointAuthCallbackError{Code: e, Description: query.Get("error_description")}
+		if dnErr := query.Get("dn_error"); dnErr != "" {
+			cbErr.Code = dnErr
 		}
-		return "", &EndpointAuthCallbackError{Code: e}
+		return "", cbErr
 	}
 
 	code := query.Get("code")

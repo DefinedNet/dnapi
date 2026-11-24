@@ -29,6 +29,24 @@ import (
 // m is a helper type for building out generic maps (e.g. for marshalling.)
 type m map[string]interface{}
 
+// The paths the mock server advertises in OAuthServerMetadata for the OAuth endpoints. Clients read
+// them from the metadata; tests use them to check where a request went.
+const (
+	OAuthPushedRequestPath = "/oauth/par"
+	OAuthTokenPath         = "/oauth/token"
+)
+
+// OAuthServerMetadata returns authorization server metadata describing the mock server, with the
+// given authorization endpoint (a page of the login frontend).
+func (s *Server) OAuthServerMetadata(authorizationEndpoint string) message.OAuthServerMetadata {
+	return message.OAuthServerMetadata{
+		Issuer:                             s.URL,
+		AuthorizationEndpoint:              authorizationEndpoint,
+		PushedAuthorizationRequestEndpoint: s.URL + OAuthPushedRequestPath,
+		TokenEndpoint:                      s.URL + OAuthTokenPath,
+	}
+}
+
 type Server struct {
 	*httptest.Server
 
@@ -80,7 +98,7 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		s.expectedRequests = s.expectedRequests[1:]
 		w.WriteHeader(expected.StatusCode())
 		_, _ = w.Write(expected.Respond(nil))
-	case message.OAuthServerMetadataEndpoint, message.OAuthPushedRequestEndpoint, message.OAuthTokenEndpoint, message.EndpointAuthHostsEndpoint:
+	case message.OAuthServerMetadataEndpoint, OAuthPushedRequestPath, OAuthTokenPath, message.EndpointAuthHostsEndpoint:
 		s.handlerQueued(w, r)
 	default:
 		// The renew path embeds the host ID (/v2/endpoint-auth/hosts/{hostID}/renew).
