@@ -274,6 +274,108 @@ type EndpointAuthPollData struct {
 	EnrollmentCode string            `json:"enrollmentCode"`
 }
 
+// Endpoint SSO login is an OAuth 2.0 authorization server for native apps (RFC 8252). The client
+// pushes an authorization request with a PKCE challenge, state and a redirect URI registered for
+// it (RFC 9126), opens the authorization endpoint in the system browser, and receives an
+// authorization code on that redirect URI, which it redeems at the token endpoint for an endpoint
+// OIDC user auth token. There is no poll: a login link forwarded to someone else delivers its
+// result to their device, not the sender's.
+//
+// Only the metadata document's location is fixed. Every other endpoint is read from it, so the
+// server can move or split them without a client release.
+const OAuthServerMetadataEndpoint = "/.well-known/oauth-authorization-server"
+
+// OAuthServerMetadata is the part of the authorization server metadata (RFC 8414) a client uses.
+// The authorization endpoint is a page of the login frontend, on a different host from the API.
+type OAuthServerMetadata struct {
+	Issuer                             string `json:"issuer"`
+	AuthorizationEndpoint              string `json:"authorization_endpoint"`
+	PushedAuthorizationRequestEndpoint string `json:"pushed_authorization_request_endpoint"`
+	TokenEndpoint                      string `json:"token_endpoint"`
+}
+
+// OAuthClientDNClient is the client ID of the desktop client, whose registered redirect URI is
+// http://127.0.0.1:{port}/callback on any port.
+const OAuthClientDNClient = "dnclient"
+
+// OAuthClientMobile is the client ID of the mobile app, whose registered redirect URI is
+// OAuthMobileCallbackPath on the authorization endpoint's origin, a link the app claims.
+const OAuthClientMobile = "mobile"
+
+// OAuthMobileCallbackPath is the path of the mobile app's redirect URI.
+const OAuthMobileCallbackPath = "/oauth/callback/android"
+
+// OAuthScopeEndpointHosts lets an endpoint user list, create and renew their own hosts on the
+// network they signed in to.
+const OAuthScopeEndpointHosts = "endpoint:hosts"
+
+// PushedAuthorizationData is returned by the pushed authorization request endpoint.
+type PushedAuthorizationData struct {
+	RequestURI string `json:"request_uri"`
+	ExpiresIn  int    `json:"expires_in"`
+}
+
+// OAuthTokenData is returned by the token endpoint. AccessToken is an endpoint OIDC user auth token
+// used to authenticate the host-management endpoints below. It is short-lived (ExpiresIn seconds)
+// and meant for the burst of calls right after login; there is no refresh token.
+//
+// Email, NetworkID and NetworkName identify who signed in and which network the login is for. A
+// client uses them to decide whether to renew a host it already has enrolled on that network
+// (RenewEndpointHost) or to create a new one (CreateEndpointHost), whichever action the user started
+// the login from.
+type OAuthTokenData struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope"`
+	Email       string `json:"email"`
+	NetworkID   string `json:"network_id"`
+	NetworkName string `json:"network_name"`
+}
+
+// OAuthErrorData is an OAuth error response (RFC 6749 section 5.2).
+type OAuthErrorData struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+}
+
+// EndpointAuthHostsEndpoint lists the hosts owned by the authenticated endpoint OIDC user, and
+// (via POST) creates a new host. Requires an endpoint OIDC user auth token as a Bearer token.
+const EndpointAuthHostsEndpoint = "/v2/endpoint-auth/hosts"
+
+// EndpointAuthHost summarizes a host owned by the authenticated endpoint OIDC user.
+type EndpointAuthHost struct {
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	NetworkID          string     `json:"networkID"`
+	IsBlocked          bool       `json:"isBlocked"`
+	NetworkAccessUntil *time.Time `json:"networkAccessUntil"`
+	CreatedAt          time.Time  `json:"createdAt"`
+}
+
+// EndpointAuthHostsData is returned by a GET to EndpointAuthHostsEndpoint.
+type EndpointAuthHostsData struct {
+	Hosts []EndpointAuthHost `json:"hosts"`
+}
+
+// EndpointAuthEnrollData is returned when creating a host. The client redeems EnrollmentCode via
+// EnrollEndpoint to bring the newly-created host online. Do NOT send the endpoint OIDC user auth
+// token on the enroll call — EnrollEndpoint rejects requests carrying one.
+type EndpointAuthEnrollData struct {
+	HostID         string `json:"hostID"`
+	EnrollmentCode string `json:"enrollmentCode"`
+}
+
+// EndpointAuthRenewData is returned when renewing a host. The host has been granted a fresh
+// network-access window and queued for update; it fetches its renewed certificate and config
+// through its own (host-key-signed) update flow, so no enrollment code is issued — the server
+// never overwrites the host's key. NetworkAccessUntil is nil when the provider imposes no
+// session expiry.
+type EndpointAuthRenewData struct {
+	HostID             string     `json:"hostID"`
+	NetworkAccessUntil *time.Time `json:"networkAccessUntil"`
+}
+
 const DownloadsEndpoint = "/v1/downloads"
 
 type DownloadsData struct {
