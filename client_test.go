@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1669,6 +1670,24 @@ func TestUnenroll(t *testing.T) {
 		assert.Error(t, c.Unenroll(ctx, *creds), body)
 	}
 
+	longBody := "<html>" + strings.Repeat("x", 1000) + "</html>"
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusBadGateway, func(r message.RequestWrapper) []byte {
+		return []byte(longBody)
+	})
+	err = c.Unenroll(ctx, *creds)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), longBody)
+	assert.Contains(t, err.Error(), longBody[:maxErrorBodyLen]+"...")
+
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
+}
+
+func TestTruncateBody(t *testing.T) {
+	t.Parallel()
+
+	exact := strings.Repeat("a", maxErrorBodyLen)
+	assert.Equal(t, "", truncateBody(nil))
+	assert.Equal(t, exact, truncateBody([]byte(exact)))
+	assert.Equal(t, exact+"...", truncateBody([]byte(exact+"b")))
 }

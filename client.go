@@ -627,7 +627,7 @@ func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
 		Data *struct{} `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil || resp.Data == nil {
-		return fmt.Errorf("unexpected unenroll response: %s", respBody)
+		return fmt.Errorf("unexpected unenroll response: %s", truncateBody(respBody))
 	}
 	return nil
 }
@@ -681,7 +681,7 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			}
 			// Err() is nil for JSON without an errors array, and storing nil panics.
 			if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
-				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
+				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(respBody)))
 			} else {
 				sc.err.Store(errors.Errors.Err())
 			}
@@ -729,10 +729,22 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		}
 		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
 		if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
-			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
+			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(respBody))
 		}
 		return nil, errors.Errors.Err()
 	}
+}
+
+// maxErrorBodyLen caps how much of an unexpected response body goes into an error, since a proxy
+// can answer with a whole HTML page.
+const maxErrorBodyLen = 256
+
+// truncateBody returns at most the first maxErrorBodyLen bytes of b, with "..." appended when it cuts.
+func truncateBody(b []byte) string {
+	if len(b) <= maxErrorBodyLen {
+		return string(b)
+	}
+	return string(b[:maxErrorBodyLen]) + "..."
 }
 
 // callAPI returns the request ID, requested response data, and any error if applicable.
