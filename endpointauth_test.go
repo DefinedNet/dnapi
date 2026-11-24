@@ -66,6 +66,8 @@ func TestEndpointAuthSecrets_ParseCallback(t *testing.T) {
 	var cbErr *EndpointAuthCallbackError
 	require.ErrorAs(t, err, &cbErr)
 	assert.Equal(t, &EndpointAuthCallbackError{Code: "ERR_OIDC_MISSING_CLAIMS", Description: "missing claims: email"}, cbErr)
+	assert.EqualError(t, err, "endpoint auth failed: ERR_OIDC_MISSING_CLAIMS: missing claims: email")
+	assert.EqualError(t, &EndpointAuthCallbackError{Code: "access_denied"}, "endpoint auth failed: access_denied")
 
 	// Without an API error code, the OAuth error code. The description is never taken for a code.
 	_, err = s.ParseCallback(url.Values{"error": {"server_error"}, "error_description": {"The login failed."}, "state": {"the-state"}, "iss": {iss}}, iss)

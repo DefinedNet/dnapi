@@ -31,7 +31,10 @@ type EndpointAuthCallbackError struct {
 }
 
 func (e *EndpointAuthCallbackError) Error() string {
-	return fmt.Sprintf("endpoint auth failed: %s", e.Code)
+	if e.Description == "" {
+		return fmt.Sprintf("endpoint auth failed: %s", e.Code)
+	}
+	return fmt.Sprintf("endpoint auth failed: %s: %s", e.Code, e.Description)
 }
 
 // EndpointAuthSecrets holds the per-login secrets of an endpoint SSO login: the PKCE code verifier
