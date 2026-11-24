@@ -65,6 +65,9 @@ func dialWithFallback(fallback map[string][]string) func(ctx context.Context, ne
 
 // NewClient returns new Client configured with the given useragent.
 // It also supports reading Proxy information from the environment.
+//
+// dnServer is the API's base URL. It is also the endpoint SSO authorization server's issuer (see
+// OAuthIssuer), so it must name the same URL as the server's configured issuer.
 func NewClient(useragent string, dnServer string) *Client {
 	return &Client{
 		client: &http.Client{
@@ -840,10 +843,37 @@ func (c *Client) Downloads(ctx context.Context) (*message.DownloadsData, error) 
 	return d, err
 }
 
-// OAuthIssuer is the issuer identifier the API's authorization server reports in its authorization
-// responses (RFC 9207): the API's base URL. Pass it to EndpointAuthSecrets.ParseCallback.
+// OAuthIssuer is the issuer identifier the API's authorization server reports in its metadata and
+// authorization responses (RFC 8414, RFC 9207): the API's base URL, normalized to a lowercase scheme
+// and host, without a default port or trailing slash. Those must equal the server's configured
+// issuer exactly, so a client pointed at e.g. "https://API.defined.net:443/" still matches
+// "https://api.defined.net". Pass it to EndpointAuthSecrets.ParseCallback.
 func (c *Client) OAuthIssuer() string {
-	return strings.TrimSuffix(c.dnServer, "/")
+	return normalizeIssuer(c.dnServer)
+}
+
+// normalizeIssuer puts a base URL in the canonical form of an issuer identifier. A URL that does not
+// parse is only trimmed of a trailing slash, and then fails to match the server's issuer.
+func normalizeIssuer(base string) string {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return strings.TrimSuffix(base, "/")
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	u.Host = host
+	u.Path = strings.TrimSuffix(u.Path, "/")
+	u.RawPath = ""
+	return u.String()
 }
 
 // EndpointAuthorize begins an endpoint SSO login, returning the authorization URL, a page of the
@@ -1006,9 +1036,10 @@ func callOAuth[T any](ctx context.Context, c *Client, endpoint string, form url.
 		return nil, &OAuthError{Code: oe.Error, Description: oe.ErrorDescription, StatusCode: resp.StatusCode, ReqID: reqID}
 	}
 
+	// A successful response may hold an access token, so its body is never put in an error.
 	var d T
 	if err := json.Unmarshal(b, &d); err != nil {
-		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s\nbody: %s", err, b), ReqID: reqID}
+		return nil, &APIError{e: fmt.Errorf("error decoding JSON response: %s", err), ReqID: reqID}
 	}
 	return &d, nil
 }

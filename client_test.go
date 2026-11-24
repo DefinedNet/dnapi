@@ -1427,6 +1427,15 @@ func TestEndpointTokenFlowV2(t *testing.T) {
 	assert.Equal(t, "invalid_grant", oerr.Code)
 	assert.Equal(t, http.StatusBadRequest, oerr.StatusCode)
 
+	// a successful response that fails to decode doesn't put the token in the error
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte { return jsonMarshal(meta) })
+	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
+		return []byte(`{"access_token":"eou-leaked","token_type":"Bearer","expires_in":"900"}`)
+	})
+	_, err = client.EndpointAuthToken(ctx, message.OAuthClientDNClient, redirectURI, code, secrets)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "eou-leaked")
+
 	// list hosts (empty)
 	ts.ExpectAPIRequest(http.StatusOK, func(any) []byte {
 		return jsonMarshal(message.APIResponse[message.EndpointAuthHostsData]{Data: message.EndpointAuthHostsData{Hosts: []message.EndpointAuthHost{}}})
@@ -1718,4 +1727,22 @@ func TestNebulaPemBanners(t *testing.T) {
 	ca, _ = dnapitest.NebulaCACertP256()
 	pub = ca.MarshalPublicKeyPEM()
 	assert.Contains(t, string(pub), NebulaECDSAP256PublicKeyBanner)
+}
+
+func TestNormalizeIssuer(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://api.defined.net":         "https://api.defined.net",
+		"https://api.defined.net/":        "https://api.defined.net",
+		"https://API.defined.net:443/":    "https://api.defined.net",
+		"HTTPS://api.defined.net":         "https://api.defined.net",
+		"https://api.defined.net:8443":    "https://api.defined.net:8443",
+		"http://127.0.0.1:80":             "http://127.0.0.1",
+		"http://127.0.0.1:9001/":          "http://127.0.0.1:9001",
+		"http://[::1]:9001":               "http://[::1]:9001",
+		"https://example.com/Tenant/":     "https://example.com/Tenant",
+		"https://example.com/path/issuer": "https://example.com/path/issuer",
+		"not a url/":                      "not a url",
+	} {
+		assert.Equal(t, want, normalizeIssuer(in), in)
+	}
 }
