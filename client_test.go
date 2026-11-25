@@ -425,7 +425,7 @@ func TestDoUpdate(t *testing.T) {
 				ID:        hostID,
 				Name:      hostName,
 				IPAddress: hostIP,
-				Ephemeral: false,
+				Ephemeral: true,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 				Email:     oidcEmail,
@@ -458,7 +458,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
-	assert.False(t, meta.Host.Ephemeral)
+	assert.True(t, meta.Host.Ephemeral)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	assert.Nil(t, meta.EndpointOIDC.ExpiresAt)
 
@@ -1914,14 +1914,15 @@ func TestSignedResponseV2(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		curve  message.NetworkCurve
-		hostID string
+		curve       message.NetworkCurve
+		hostID      string
+		canonicalID string
 	}{
-		{message.NetworkCurve25519, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
-		{message.NetworkCurveP256, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		{message.NetworkCurve25519, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ", "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		{message.NetworkCurveP256, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ", "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
 		// Hosts enrolled before prefixed IDs keep this spelling, which the API echoes as sent.
-		{message.NetworkCurve25519, "3q2-7_7erb7v7q3e3q2-7w"},
-		{message.NetworkCurveP256, "3q2-7_7erb7v7q3e3q2-7w"},
+		{message.NetworkCurve25519, "3q2-7_7erb7v7q3e3q2-7w", "host-32W3537632W3537OVXPN5LN654"},
+		{message.NetworkCurveP256, "3q2-7_7erb7v7q3e3q2-7w", "host-32W3537632W3537OVXPN5LN654"},
 	} {
 		curve := tt.curve
 		t.Run(string(curve)+"/"+tt.hostID, func(t *testing.T) {
@@ -1985,7 +1986,7 @@ func TestSignedResponseV2(t *testing.T) {
 			ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 				assert.Len(t, r.Nonce, 16)
 				// The API's value always carries the canonical spelling, even for a legacy ID.
-				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"})
+				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: tt.canonicalID})
 			})
 			require.NoError(t, c.Unenroll(ctx, *creds))
 
@@ -2001,9 +2002,12 @@ func TestSignedResponseV2(t *testing.T) {
 					TrustedKeys: ca.MarshalPublicKeyPEM(),
 				})
 			})
-			_, _, creds, _, err = c.DoUpdate(ctx, *creds)
+			var meta *ConfigMeta
+			_, _, creds, meta, err = c.DoUpdate(ctx, *creds)
 			require.NoError(t, err)
 			assert.EqualValues(t, 2, creds.Counter)
+			// TestDoUpdate covers an ephemeral host; this one is not.
+			assert.False(t, meta.Host.Ephemeral)
 
 			ts.ExpectDNClientRequest(message.DoConfigUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
 				assert.Len(t, r.Nonce, 16)
