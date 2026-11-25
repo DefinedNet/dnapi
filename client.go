@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -116,6 +117,10 @@ var ErrInvalidCredentials = fmt.Errorf("invalid credentials")
 var ErrInvalidCode = fmt.Errorf("invalid enrollment code")
 var ErrHostBlocked = fmt.Errorf("host is blocked")
 
+// ErrNotEphemeral is returned by Unenroll when the host was not enrolled with an ephemeral join key.
+// Only an administrator can delete such a host.
+var ErrNotEphemeral = fmt.Errorf("only ephemeral hosts can unenroll themselves")
+
 type ConfigMeta struct {
 	Org          ConfigOrg
 	Network      ConfigNetwork
@@ -137,6 +142,7 @@ type ConfigHost struct {
 	ID          string
 	Name        string
 	IPAddresses []string
+	Ephemeral   bool
 }
 
 type ConfigEndpointOIDC struct {
@@ -231,6 +237,7 @@ func (c *Client) Enroll(ctx context.Context, logger *slog.Logger, code string, h
 			ID:          r.HostID,
 			Name:        r.Host.Name,
 			IPAddresses: mergeIPAddresses(r.Host.IPAddresses, r.Host.IPAddress),
+			Ephemeral:   r.Host.Ephemeral,
 		},
 	}
 
@@ -405,6 +412,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 			ID:          result.Host.ID,
 			Name:        result.Host.Name,
 			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
+			Ephemeral:   result.Host.Ephemeral,
 		},
 	}
 
@@ -513,6 +521,7 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 			ID:          result.Host.ID,
 			Name:        result.Host.Name,
 			IPAddresses: mergeIPAddresses(result.Host.IPAddresses, result.Host.IPAddress),
+			Ephemeral:   result.Host.Ephemeral,
 		},
 	}
 
@@ -597,6 +606,42 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 	return &response, nil
 }
 
+// Unenroll deletes the calling host from its network. A host that no longer exists returns
+// ErrInvalidCredentials, and a host not enrolled with an ephemeral join key returns ErrNotEphemeral.
+func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
+	value, err := json.Marshal(message.UnenrollRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	respBody, err := c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	var apiErrors message.APIErrors
+	if errors.As(err, &apiErrors) && slices.ContainsFunc(apiErrors, func(e message.APIResponseError) bool {
+		return e.Code == "ERR_UNENROLL_NOT_EPHEMERAL"
+	}) {
+		return ErrNotEphemeral
+	}
+	if err != nil {
+		return err
+	}
+
+	resultWrapper, err := verifySignature(respBody, creds)
+	if err != nil {
+		return err
+	}
+
+	var response message.UnenrollResponse
+	if err := json.Unmarshal(resultWrapper.Data.Message, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal DNClient response: %s", err)
+	}
+	// Every host on the network trusts the same CA keys, so a signed response only proves this
+	// host's deletion if it names this host.
+	if response.HostID != creds.HostID {
+		return fmt.Errorf("unenroll response is for host %q, not %q", response.HostID, creds.HostID)
+	}
+	return nil
+}
+
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
 // On success, it returns a StreamController to interact with the request. On error, the error is returned.
 func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, value []byte, hostID string, counter uint, privkey keys.PrivateKey) (*StreamController, error) {
@@ -644,8 +689,9 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 			var errors struct {
 				Errors message.APIResponseErrors
 			}
-			if err := json.Unmarshal(respBody, &errors); err != nil {
-				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody))
+			// Err() is nil for JSON without an errors array, and storing nil panics.
+			if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
+				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(respBody)))
 			} else {
 				sc.err.Store(errors.Errors.Err())
 			}
@@ -691,11 +737,24 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 		var errors struct {
 			Errors message.APIResponseErrors
 		}
-		if err := json.Unmarshal(respBody, &errors); err != nil {
-			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, respBody)
+		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
+		if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
+			return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(respBody))
 		}
 		return nil, errors.Errors.Err()
 	}
+}
+
+// maxErrorBodyLen caps how much of an unexpected response body goes into an error, since a proxy
+// can answer with a whole HTML page.
+const maxErrorBodyLen = 256
+
+// truncateBody returns at most the first maxErrorBodyLen bytes of b, with "..." appended when it cuts.
+func truncateBody(b []byte) string {
+	if len(b) <= maxErrorBodyLen {
+		return string(b)
+	}
+	return string(b[:maxErrorBodyLen]) + "..."
 }
 
 // callAPI returns the request ID, requested response data, and any error if applicable. Optional

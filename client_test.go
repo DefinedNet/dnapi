@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,7 @@ func TestEnroll(t *testing.T) {
 					ID:        hostID,
 					Name:      hostName,
 					IPAddress: hostIP,
+					Ephemeral: true,
 				},
 				EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 					Email:     oidcEmail,
@@ -158,6 +160,7 @@ func TestEnroll(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
+	assert.True(t, meta.Host.Ephemeral)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	assert.WithinDuration(t, oidcExpiresAt, *meta.EndpointOIDC.ExpiresAt, 1*time.Second)
 
@@ -421,6 +424,7 @@ func TestDoUpdate(t *testing.T) {
 				ID:        hostID,
 				Name:      hostName,
 				IPAddress: hostIP,
+				Ephemeral: true,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 				Email:     oidcEmail,
@@ -453,6 +457,7 @@ func TestDoUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
+	assert.True(t, meta.Host.Ephemeral)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	assert.Nil(t, meta.EndpointOIDC.ExpiresAt)
 
@@ -538,6 +543,7 @@ func TestDoConfigUpdate(t *testing.T) {
 				ID:        hostID,
 				Name:      hostName,
 				IPAddress: hostIP,
+				Ephemeral: true,
 			},
 			EndpointOIDCMeta: &message.HostEndpointOIDCMetadata{
 				Email:     oidcEmail,
@@ -569,6 +575,7 @@ func TestDoConfigUpdate(t *testing.T) {
 	assert.Equal(t, hostID, meta.Host.ID)
 	assert.Equal(t, hostName, meta.Host.Name)
 	assert.Equal(t, []string{hostIP}, meta.Host.IPAddresses)
+	assert.True(t, meta.Host.Ephemeral)
 	require.NotNil(t, meta.EndpointOIDC)
 	assert.Equal(t, oidcEmail, meta.EndpointOIDC.Email)
 	require.NotNil(t, meta.EndpointOIDC.ExpiresAt)
@@ -1043,6 +1050,17 @@ func TestStreamCommandResponse(t *testing.T) {
 	// Close shouldn't return an error - that's only if the writer fails to close
 	assert.NoError(t, sc.Close())
 	// Err should return the error from the server
+	assert.Error(t, sc.Err())
+
+	// A proxy's JSON error page has no errors array.
+	ts.ExpectStreamingRequest(message.CommandResponse, http.StatusServiceUnavailable, func(r message.RequestWrapper) []byte {
+		return []byte(`{}`)
+	})
+	sc, err = c.StreamCommandResponse(context.Background(), *creds, "responseToken")
+	require.NoError(t, err)
+	_, err = sc.Write([]byte("log line"))
+	require.NoError(t, err)
+	assert.NoError(t, sc.Close())
 	assert.Error(t, sc.Err())
 
 	assert.Empty(t, ts.Errors())
@@ -1727,6 +1745,141 @@ func TestNebulaPemBanners(t *testing.T) {
 	ca, _ = dnapitest.NebulaCACertP256()
 	pub = ca.MarshalPublicKeyPEM()
 	assert.Contains(t, string(pub), NebulaECDSAP256PublicKeyBanner)
+}
+
+func TestUnenroll(t *testing.T) {
+	t.Parallel()
+
+	useragent := "testClient"
+	ts := dnapitest.NewServer(useragent)
+	t.Cleanup(func() { ts.Close() })
+
+	ca, caPrivkey := dnapitest.NebulaCACert()
+	caPEM, err := ca.MarshalPEM()
+	require.NoError(t, err)
+
+	c := NewClient(useragent, ts.URL)
+
+	ts.ExpectEnrollment("foobar", message.NetworkCurve25519, func(req message.EnrollRequest) []byte {
+		cfg, err := yaml.Marshal(m{"pki": m{"ca": string(caPEM)}})
+		require.NoError(t, err)
+		return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
+			Data: message.EnrollResponseData{
+				HostID:      "foobar",
+				Counter:     1,
+				Config:      cfg,
+				TrustedKeys: ca.MarshalPublicKeyPEM(),
+				Network:     message.HostNetworkMetadata{Curve: message.NetworkCurve25519},
+			},
+		})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+	require.NoError(t, err)
+
+	signedResponse := func(hostID string, key ed25519.PrivateKey) []byte {
+		rawRes := jsonMarshal(message.UnenrollResponse{HostID: hostID})
+		return jsonMarshal(message.SignedResponseWrapper{
+			Data: message.SignedResponse{
+				Version:   1,
+				Message:   rawRes,
+				Signature: ed25519.Sign(key, rawRes),
+			},
+		})
+	}
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+		assert.JSONEq(t, "{}", string(r.Value))
+		return signedResponse(creds.HostID, caPrivkey)
+	})
+	require.NoError(t, c.Unenroll(ctx, *creds))
+
+	_, otherPrivkey := dnapitest.NebulaCACert()
+	for name, body := range map[string][]byte{
+		"unsigned":        []byte(`{"data":{}}`),
+		"wrong signature": signedResponse(creds.HostID, otherPrivkey),
+		// A replayed response for another host on the same network carries a valid signature.
+		"other host": signedResponse("otherhost", caPrivkey),
+	} {
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+			return body
+		})
+		assert.Error(t, c.Unenroll(ctx, *creds), name)
+	}
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusForbidden, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.APIResponse[struct{}]{
+			Errors: message.APIResponseErrors{{
+				Code:    "ERR_UNENROLL_NOT_EPHEMERAL",
+				Message: "only hosts enrolled with an ephemeral join key can unenroll themselves",
+			}},
+		})
+	})
+	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrNotEphemeral)
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusForbidden, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.APIResponse[struct{}]{
+			Errors: message.APIResponseErrors{
+				{Code: "ERR_OTHER", Message: "something else"},
+				{Code: "ERR_UNENROLL_NOT_EPHEMERAL", Message: "not ephemeral"},
+			},
+		})
+	})
+	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrNotEphemeral)
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusUnauthorized, func(r message.RequestWrapper) []byte {
+		return []byte("Unauthorized")
+	})
+	assert.ErrorIs(t, c.Unenroll(ctx, *creds), ErrInvalidCredentials)
+
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusInternalServerError, func(r message.RequestWrapper) []byte {
+		return jsonMarshal(message.APIResponse[struct{}]{
+			Errors: message.APIResponseErrors{{Code: "ERR_INTERNAL", Message: "boom"}},
+		})
+	})
+	err = c.Unenroll(ctx, *creds)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotEphemeral)
+	assert.NotErrorIs(t, err, ErrInvalidCredentials)
+
+	// A proxy's JSON error page has no errors array and must not read as success.
+	for _, body := range []string{`{"message":"Service Unavailable"}`, `{}`, `null`} {
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusServiceUnavailable, func(r message.RequestWrapper) []byte {
+			return []byte(body)
+		})
+		assert.Error(t, c.Unenroll(ctx, *creds), body)
+	}
+
+	// A proxy that redirects to a login page answers 200 without the API's body.
+	for _, body := range []string{`<html>Sign in</html>`, `{}`} {
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+			return []byte(body)
+		})
+		assert.Error(t, c.Unenroll(ctx, *creds), body)
+	}
+
+	longBody := "<html>" + strings.Repeat("x", 1000) + "</html>"
+	ts.ExpectDNClientRequest(message.Unenroll, http.StatusBadGateway, func(r message.RequestWrapper) []byte {
+		return []byte(longBody)
+	})
+	err = c.Unenroll(ctx, *creds)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), longBody)
+	assert.Contains(t, err.Error(), longBody[:maxErrorBodyLen]+"...")
+
+	assert.Empty(t, ts.Errors())
+	assert.Equal(t, 0, ts.RequestsRemaining())
+}
+
+func TestTruncateBody(t *testing.T) {
+	t.Parallel()
+
+	exact := strings.Repeat("a", maxErrorBodyLen)
+	assert.Equal(t, "", truncateBody(nil))
+	assert.Equal(t, exact, truncateBody([]byte(exact)))
+	assert.Equal(t, exact+"...", truncateBody([]byte(exact+"b")))
 }
 
 func TestNormalizeIssuer(t *testing.T) {
