@@ -163,10 +163,9 @@ type ReauthenticateRequest struct {
 // UnenrollRequest is the request sent for an Unenroll request.
 type UnenrollRequest struct{}
 
-// UnenrollResponse is the signed response message associated with an Unenroll request.
-type UnenrollResponse struct {
-	HostID string `json:"hostID"`
-}
+// UnenrollResponse is the signed response message associated with an Unenroll request. It is
+// empty because the version 2 envelope already names the deleted host.
+type UnenrollResponse struct{}
 
 // ReauthenticateResponse is the response message associated with a Reauthenticate request.
 type ReauthenticateResponse struct {

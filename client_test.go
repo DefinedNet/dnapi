@@ -1809,7 +1809,7 @@ func TestUnenroll(t *testing.T) {
 
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 		assert.JSONEq(t, "{}", string(r.Value))
-		return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
+		return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{})
 	})
 	require.NoError(t, c.Unenroll(ctx, *creds))
 
@@ -1817,7 +1817,7 @@ func TestUnenroll(t *testing.T) {
 	for name, respond := range map[string]func(r message.RequestWrapper) []byte{
 		"unsigned": func(message.RequestWrapper) []byte { return []byte(`{"data":{}}`) },
 		"wrong signature": func(r message.RequestWrapper) []byte {
-			return signedResponseV2(t, keys.Ed25519PrivateKey{PrivateKey: otherPrivkey}, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
+			return signedResponseV2(t, keys.Ed25519PrivateKey{PrivateKey: otherPrivkey}, r, creds.HostID, message.UnenrollResponse{})
 		},
 	} {
 		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, respond)
@@ -1919,15 +1919,14 @@ func TestSignedResponseV2(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		curve       message.NetworkCurve
-		hostID      string
-		canonicalID string
+		curve  message.NetworkCurve
+		hostID string
 	}{
-		{message.NetworkCurve25519, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ", "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
-		{message.NetworkCurveP256, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ", "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		{message.NetworkCurve25519, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		{message.NetworkCurveP256, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
 		// Hosts enrolled before prefixed IDs keep this spelling, which the API echoes as sent.
-		{message.NetworkCurve25519, "3q2-7_7erb7v7q3e3q2-7w", "host-32W3537632W3537OVXPN5LN654"},
-		{message.NetworkCurveP256, "3q2-7_7erb7v7q3e3q2-7w", "host-32W3537632W3537OVXPN5LN654"},
+		{message.NetworkCurve25519, "3q2-7_7erb7v7q3e3q2-7w"},
+		{message.NetworkCurveP256, "3q2-7_7erb7v7q3e3q2-7w"},
 	} {
 		curve := tt.curve
 		t.Run(string(curve)+"/"+tt.hostID, func(t *testing.T) {
@@ -1990,8 +1989,7 @@ func TestSignedResponseV2(t *testing.T) {
 
 			ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 				assert.Len(t, r.Nonce, 16)
-				// The API's value always carries the canonical spelling, even for a legacy ID.
-				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: tt.canonicalID})
+				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{})
 			})
 			require.NoError(t, c.Unenroll(ctx, *creds))
 
@@ -2043,7 +2041,7 @@ func TestSignedResponseV2(t *testing.T) {
 					Nonce:   r.Nonce,
 					HostID:  creds.HostID,
 					Type:    r.Type,
-					Value:   jsonMarshal(message.UnenrollResponse{HostID: creds.HostID}),
+					Value:   jsonMarshal(message.UnenrollResponse{}),
 				}
 			}
 			withoutField := func(field string) func(r message.RequestWrapper) []byte {
@@ -2088,7 +2086,7 @@ func TestSignedResponseV2(t *testing.T) {
 					return signResponse(t, caKey, 3, jsonMarshal(envelope(r)))
 				}, "got version 3"},
 				{"version 1 unenroll", func(r message.RequestWrapper) []byte {
-					return signResponse(t, caKey, 1, jsonMarshal(message.UnenrollResponse{HostID: creds.HostID}))
+					return signResponse(t, caKey, 1, jsonMarshal(message.UnenrollResponse{}))
 				}, "requires a version 2 signed response"},
 				{"missing nonce", withoutField("nonce"), "missing a field"},
 				{"missing hostID", withoutField("hostID"), "missing a field"},
