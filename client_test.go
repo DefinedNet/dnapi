@@ -1167,6 +1167,26 @@ func TestReauthenticate(t *testing.T) {
 
 }
 
+// signResponse returns a signed response of the given version carrying msg, signed by caKey.
+func signResponse(t *testing.T, caKey keys.PrivateKey, version int, msg []byte) []byte {
+	sig, err := caKey.Sign(msg)
+	require.NoError(t, err)
+	return jsonMarshal(message.SignedResponseWrapper{
+		Data: message.SignedResponse{Version: version, Message: msg, Signature: sig},
+	})
+}
+
+// signedResponseV2 returns a version 2 signed response to r for hostID carrying value.
+func signedResponseV2(t *testing.T, caKey keys.PrivateKey, r message.RequestWrapper, hostID string, value any) []byte {
+	return signResponse(t, caKey, 2, jsonMarshal(message.SignedResponseEnvelope{
+		Version: 2,
+		Nonce:   r.Nonce,
+		HostID:  hostID,
+		Type:    r.Type,
+		Value:   jsonMarshal(value),
+	}))
+}
+
 func jsonMarshal(v interface{}) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1779,33 +1799,25 @@ func TestUnenroll(t *testing.T) {
 	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
-	signedResponse := func(hostID string, key ed25519.PrivateKey) []byte {
-		rawRes := jsonMarshal(message.UnenrollResponse{HostID: hostID})
-		return jsonMarshal(message.SignedResponseWrapper{
-			Data: message.SignedResponse{
-				Version:   1,
-				Message:   rawRes,
-				Signature: ed25519.Sign(key, rawRes),
-			},
-		})
-	}
+	caKey := keys.Ed25519PrivateKey{PrivateKey: caPrivkey}
 
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 		assert.JSONEq(t, "{}", string(r.Value))
-		return signedResponse(creds.HostID, caPrivkey)
+		return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
 	})
 	require.NoError(t, c.Unenroll(ctx, *creds))
 
 	_, otherPrivkey := dnapitest.NebulaCACert()
-	for name, body := range map[string][]byte{
-		"unsigned":        []byte(`{"data":{}}`),
-		"wrong signature": signedResponse(creds.HostID, otherPrivkey),
-		// A replayed response for another host on the same network carries a valid signature.
-		"other host": signedResponse("otherhost", caPrivkey),
+	for name, respond := range map[string]func(r message.RequestWrapper) []byte{
+		"unsigned": func(message.RequestWrapper) []byte { return []byte(`{"data":{}}`) },
+		"wrong signature": func(r message.RequestWrapper) []byte {
+			return signedResponseV2(t, keys.Ed25519PrivateKey{PrivateKey: otherPrivkey}, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
+		},
+		"value for other host": func(r message.RequestWrapper) []byte {
+			return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: "otherhost"})
+		},
 	} {
-		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
-			return body
-		})
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, respond)
 		assert.Error(t, c.Unenroll(ctx, *creds), name)
 	}
 
@@ -1897,5 +1909,177 @@ func TestNormalizeIssuer(t *testing.T) {
 		"not a url/":                      "not a url",
 	} {
 		assert.Equal(t, want, normalizeIssuer(in), in)
+	}
+}
+
+func TestSignedResponseV2(t *testing.T) {
+	t.Parallel()
+
+	for _, curve := range []message.NetworkCurve{message.NetworkCurve25519, message.NetworkCurveP256} {
+		t.Run(string(curve), func(t *testing.T) {
+			t.Parallel()
+
+			useragent := "testClient"
+			ts := dnapitest.NewServer(useragent)
+			t.Cleanup(func() { ts.Close() })
+
+			var ca cert.Certificate
+			var caKey keys.PrivateKey
+			if curve == message.NetworkCurveP256 {
+				var priv *ecdsa.PrivateKey
+				ca, priv = dnapitest.NebulaCACertP256()
+				caKey = keys.P256PrivateKey{PrivateKey: priv}
+			} else {
+				var priv ed25519.PrivateKey
+				ca, priv = dnapitest.NebulaCACert()
+				caKey = keys.Ed25519PrivateKey{PrivateKey: priv}
+			}
+			caPEM, err := ca.MarshalPEM()
+			require.NoError(t, err)
+
+			c := NewClient(useragent, ts.URL)
+			ts.ExpectEnrollment("foobar", curve, func(req message.EnrollRequest) []byte {
+				cfg, err := yaml.Marshal(m{"pki": m{"ca": string(caPEM)}})
+				require.NoError(t, err)
+				return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
+					Data: message.EnrollResponseData{
+						HostID:      "foobar",
+						Counter:     1,
+						Config:      cfg,
+						TrustedKeys: ca.MarshalPublicKeyPEM(),
+						Network:     message.HostNetworkMetadata{Curve: curve},
+					},
+				})
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+			require.NoError(t, err)
+
+			// Unsigned commands keep the version 1 request with no nonce.
+			ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Nil(t, r.Nonce)
+				return jsonMarshal(message.CheckForUpdateResponseWrapper{})
+			})
+			_, err = c.CheckForUpdate(ctx, *creds)
+			require.NoError(t, err)
+
+			ts.ExpectDNClientRequest(message.Reauthenticate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				return signedResponseV2(t, caKey, r, creds.HostID, message.ReauthenticateResponse{LoginURL: "https://example.com/login"})
+			})
+			reauth, err := c.Reauthenticate(ctx, *creds)
+			require.NoError(t, err)
+			assert.Equal(t, "https://example.com/login", reauth.LoginURL)
+
+			ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
+			})
+			require.NoError(t, c.Unenroll(ctx, *creds))
+
+			// The inner nonce of DoUpdate and DoConfigUpdate is the request nonce.
+			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				assert.Equal(t, r.Nonce, dnapitest.GetNonce(r))
+				return signedResponseV2(t, caKey, r, creds.HostID, message.DoUpdateResponse{
+					Config:      dnapitest.NebulaCfg(caPEM),
+					Network:     message.HostNetworkMetadata{Curve: curve},
+					Counter:     2,
+					Nonce:       dnapitest.GetNonce(r),
+					TrustedKeys: ca.MarshalPublicKeyPEM(),
+				})
+			})
+			_, _, creds, _, err = c.DoUpdate(ctx, *creds)
+			require.NoError(t, err)
+			assert.EqualValues(t, 2, creds.Counter)
+
+			ts.ExpectDNClientRequest(message.DoConfigUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				assert.Equal(t, r.Nonce, dnapitest.GetNonce(r))
+				return signedResponseV2(t, caKey, r, creds.HostID, message.DoConfigUpdateResponse{
+					Config:      dnapitest.NebulaCfg(caPEM),
+					Network:     message.HostNetworkMetadata{Curve: curve},
+					Counter:     3,
+					Nonce:       dnapitest.GetNonce(r),
+					TrustedKeys: ca.MarshalPublicKeyPEM(),
+				})
+			})
+			_, creds, _, err = c.DoConfigUpdate(ctx, *creds)
+			require.NoError(t, err)
+			assert.EqualValues(t, 3, creds.Counter)
+
+			// Each negative case changes one thing in an otherwise valid, correctly signed response.
+			envelope := func(r message.RequestWrapper) message.SignedResponseEnvelope {
+				return message.SignedResponseEnvelope{
+					Version: 2,
+					Nonce:   r.Nonce,
+					HostID:  creds.HostID,
+					Type:    r.Type,
+					Value:   jsonMarshal(message.UnenrollResponse{HostID: creds.HostID}),
+				}
+			}
+			withoutField := func(field string) func(r message.RequestWrapper) []byte {
+				return func(r message.RequestWrapper) []byte {
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(jsonMarshal(envelope(r)), &fields))
+					require.Contains(t, fields, field)
+					delete(fields, field)
+					return signResponse(t, caKey, 2, jsonMarshal(fields))
+				}
+			}
+			for _, tc := range []struct {
+				name    string
+				respond func(r message.RequestWrapper) []byte
+				wantErr string
+			}{
+				{"valid", func(r message.RequestWrapper) []byte {
+					return signResponse(t, caKey, 2, jsonMarshal(envelope(r)))
+				}, ""},
+				{"wrong nonce", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.Nonce = nonce()
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, "nonce does not match"},
+				// Another host on the network can obtain a response signed by the same CA.
+				{"wrong host", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.HostID = "otherhost"
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, `is for host "otherhost"`},
+				{"wrong type", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.Type = message.Reauthenticate
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, "is for a Reauthenticate request"},
+				{"envelope version mismatch", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.Version = 3
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, "envelope version 3"},
+				{"unknown outer version", func(r message.RequestWrapper) []byte {
+					return signResponse(t, caKey, 3, jsonMarshal(envelope(r)))
+				}, "unsupported signed response version 3"},
+				{"version 1 unenroll", func(r message.RequestWrapper) []byte {
+					return signResponse(t, caKey, 1, jsonMarshal(message.UnenrollResponse{HostID: creds.HostID}))
+				}, "requires a version 2 signed response"},
+				{"missing nonce", withoutField("nonce"), "missing a field"},
+				{"missing hostID", withoutField("hostID"), "missing a field"},
+				{"missing type", withoutField("type"), "missing a field"},
+				{"missing value", withoutField("value"), "missing a field"},
+			} {
+				ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, tc.respond)
+				err := c.Unenroll(ctx, *creds)
+				if tc.wantErr == "" {
+					assert.NoError(t, err, tc.name)
+				} else {
+					assert.ErrorContains(t, err, tc.wantErr, tc.name)
+				}
+			}
+
+			assert.Empty(t, ts.Errors())
+			assert.Equal(t, 0, ts.RequestsRemaining())
+		})
 	}
 }

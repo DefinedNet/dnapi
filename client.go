@@ -327,9 +327,7 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 		return nil, nil, nil, nil, fmt.Errorf("failed to generate new keys: %s", err)
 	}
 
-	msg := message.DoUpdateRequest{
-		Nonce: nonce(),
-	}
+	msg := message.DoUpdateRequest{}
 
 	// Set the correct keypair based on the current private key type
 	switch creds.PrivateKey.Unwrap().(type) {
@@ -353,28 +351,20 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 		msg.NebulaPubkeyP256 = newKeys.NebulaP256PublicKeyPEM
 	}
 
-	blob, err := json.Marshal(msg)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
-	}
-
 	// Make API call
-	resp, err := c.postDNClient(ctx, message.DoUpdate, blob, creds.HostID, creds.Counter, creds.PrivateKey)
+	resp, err := c.postSignedDNClient(ctx, message.DoUpdate, creds, func(nonce []byte) any {
+		msg.Nonce = nonce
+		return msg
+	})
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
 	}
 
-	// Verify the signature
-	resultWrapper, err := verifySignature(resp, creds)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	// Consume the verified message
 	result := message.DoUpdateResponse{}
-	err = json.Unmarshal(resultWrapper.Data.Message, &result)
+	err = json.Unmarshal(resp, &result)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to unmarshal response (%s): %s", resultWrapper.Data.Message, err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to unmarshal response (%s): %s", resp, err)
 	}
 
 	// Verify the nonce
@@ -440,9 +430,7 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 		return nil, nil, nil, fmt.Errorf("failed to generate new keys: %s", err)
 	}
 
-	msg := message.DoConfigUpdateRequest{
-		Nonce: nonce(),
-	}
+	msg := message.DoConfigUpdateRequest{}
 
 	// Set the correct keypair based on the current private key type
 	switch creds.PrivateKey.Unwrap().(type) {
@@ -462,28 +450,20 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 		msg.HostPubkeyP256 = hostPubkeyPEM
 	}
 
-	blob, err := json.Marshal(msg)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
-	}
-
 	// Make API call
-	resp, err := c.postDNClient(ctx, message.DoConfigUpdate, blob, creds.HostID, creds.Counter, creds.PrivateKey)
+	resp, err := c.postSignedDNClient(ctx, message.DoConfigUpdate, creds, func(nonce []byte) any {
+		msg.Nonce = nonce
+		return msg
+	})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
 	}
 
-	// Verify the signature
-	resultWrapper, err := verifySignature(resp, creds)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	// Consume the verified message
 	result := message.DoConfigUpdateResponse{}
-	err = json.Unmarshal(resultWrapper.Data.Message, &result)
+	err = json.Unmarshal(resp, &result)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to unmarshal response (%s): %s", resultWrapper.Data.Message, err)
+		return nil, nil, nil, fmt.Errorf("failed to unmarshal response (%s): %s", resp, err)
 	}
 
 	// Verify the nonce
@@ -558,6 +538,71 @@ func verifySignature(resp []byte, creds keys.Credentials) (message.SignedRespons
 	return resultWrapper, nil
 }
 
+// unboundResponseTypes are the signed commands that still accept a version 1 response, which is
+// not bound to its request, from an API that predates version 2.
+var unboundResponseTypes = []string{message.Reauthenticate, message.DoUpdate, message.DoConfigUpdate}
+
+// postSignedDNClient makes a signed command call bound to a fresh nonce, which value receives so
+// a command can also carry it in its own request. It returns the verified command response.
+func (c *Client) postSignedDNClient(ctx context.Context, reqType string, creds keys.Credentials, value func(nonce []byte) any) ([]byte, error) {
+	n := nonce()
+	blob, err := json.Marshal(value(n))
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
+	}
+
+	postBody, err := signRequest(reqType, blob, n, creds.HostID, creds.Counter, creds.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.postDNClientBody(ctx, postBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return verifyResponse(resp, reqType, n, creds)
+}
+
+// verifyResponse checks a signed response to a reqType request sent with nonce, and returns the
+// command response it carries.
+func verifyResponse(resp []byte, reqType string, nonce []byte, creds keys.Credentials) ([]byte, error) {
+	resultWrapper, err := verifySignature(resp, creds)
+	if err != nil {
+		return nil, err
+	}
+
+	if v := resultWrapper.Data.Version; v == 1 {
+		if !slices.Contains(unboundResponseTypes, reqType) {
+			return nil, fmt.Errorf("%s requires a version 2 signed response, got version 1", reqType)
+		}
+		return resultWrapper.Data.Message, nil
+	} else if v != 2 {
+		return nil, fmt.Errorf("unsupported signed response version %d", v)
+	}
+
+	var env message.SignedResponseEnvelope
+	if err := json.Unmarshal(resultWrapper.Data.Message, &env); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal signed response envelope: %s", err)
+	}
+	if len(env.Nonce) == 0 || env.HostID == "" || env.Type == "" || len(env.Value) == 0 || string(env.Value) == "null" {
+		return nil, fmt.Errorf("signed response envelope is missing a field")
+	}
+	if env.Version != 2 {
+		return nil, fmt.Errorf("signed response envelope version %d does not match version 2", env.Version)
+	}
+	if !bytes.Equal(env.Nonce, nonce) {
+		return nil, fmt.Errorf("signed response nonce does not match the request")
+	}
+	if env.HostID != creds.HostID {
+		return nil, fmt.Errorf("signed response is for host %q, not %q", env.HostID, creds.HostID)
+	}
+	if env.Type != reqType {
+		return nil, fmt.Errorf("signed response is for a %s request, not %s", env.Type, reqType)
+	}
+	return env.Value, nil
+}
+
 func (c *Client) CommandResponse(ctx context.Context, creds keys.Credentials, responseToken string, response any) error {
 	value, err := json.Marshal(message.CommandResponseRequest{
 		ResponseToken: responseToken,
@@ -583,23 +628,15 @@ func (c *Client) StreamCommandResponse(ctx context.Context, creds keys.Credentia
 }
 
 func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*message.ReauthenticateResponse, error) {
-	value, err := json.Marshal(message.ReauthenticateRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal DNClient message: %s", err)
-	}
-
-	resp, err := c.postDNClient(ctx, message.Reauthenticate, value, creds.HostID, creds.Counter, creds.PrivateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	resultWrapper, err := verifySignature(resp, creds)
+	resp, err := c.postSignedDNClient(ctx, message.Reauthenticate, creds, func([]byte) any {
+		return message.ReauthenticateRequest{}
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	var response message.ReauthenticateResponse
-	if err := json.Unmarshal(resultWrapper.Data.Message, &response); err != nil {
+	if err := json.Unmarshal(resp, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal DNClient response: %s", err)
 	}
 
@@ -609,12 +646,9 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 // Unenroll deletes the calling host from its network. A host that no longer exists returns
 // ErrInvalidCredentials, and a host not enrolled with an ephemeral join key returns ErrNotEphemeral.
 func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
-	value, err := json.Marshal(message.UnenrollRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to marshal DNClient message: %s", err)
-	}
-
-	respBody, err := c.postDNClient(ctx, message.Unenroll, value, creds.HostID, creds.Counter, creds.PrivateKey)
+	resp, err := c.postSignedDNClient(ctx, message.Unenroll, creds, func([]byte) any {
+		return message.UnenrollRequest{}
+	})
 	var apiErrors message.APIErrors
 	if errors.As(err, &apiErrors) && slices.ContainsFunc(apiErrors, func(e message.APIResponseError) bool {
 		return e.Code == "ERR_UNENROLL_NOT_EPHEMERAL"
@@ -625,17 +659,11 @@ func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
 		return err
 	}
 
-	resultWrapper, err := verifySignature(respBody, creds)
-	if err != nil {
-		return err
-	}
-
 	var response message.UnenrollResponse
-	if err := json.Unmarshal(resultWrapper.Data.Message, &response); err != nil {
+	if err := json.Unmarshal(resp, &response); err != nil {
 		return fmt.Errorf("failed to unmarshal DNClient response: %s", err)
 	}
-	// Every host on the network trusts the same CA keys, so a signed response only proves this
-	// host's deletion if it names this host.
+	// The envelope already binds the response to this host; the value names the host deleted.
 	if response.HostID != creds.HostID {
 		return fmt.Errorf("unenroll response is for host %q, not %q", response.HostID, creds.HostID)
 	}
@@ -708,7 +736,11 @@ func (c *Client) postDNClient(ctx context.Context, reqType string, value []byte,
 	if err != nil {
 		return nil, err
 	}
+	return c.postDNClientBody(ctx, postBody)
+}
 
+// postDNClientBody posts an already signed request and returns the response body on success.
+func (c *Client) postDNClientBody(ctx context.Context, postBody []byte) ([]byte, error) {
 	endpointV1URL, err := urlPath(c.dnServer, message.EndpointV1)
 	if err != nil {
 		return nil, err
