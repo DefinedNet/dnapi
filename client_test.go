@@ -2119,9 +2119,8 @@ func TestSignedResponseV2(t *testing.T) {
 			_, _, _, _, err = c.DoUpdate(ctx, *creds)
 			assert.ErrorIs(t, err, ErrInvalidCredentials)
 			assert.ErrorContains(t, err, "failed to make API call to Defined Networking: ")
-			assert.Len(t, ts.Errors(), 1, "the old key is now rejected")
-
-			assert.Empty(t, ts.Errors())
+			// The only server error is the old key's rejection.
+			assert.Equal(t, []error{errors.New("invalid signature")}, ts.Errors())
 			assert.Equal(t, 0, ts.RequestsRemaining())
 		})
 	}
