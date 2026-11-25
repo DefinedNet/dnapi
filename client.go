@@ -119,7 +119,7 @@ var ErrHostBlocked = fmt.Errorf("host is blocked")
 
 // ErrNotEphemeral is returned by Unenroll when the host was not enrolled with an ephemeral join key.
 // Only an administrator can delete such a host.
-var ErrNotEphemeral = fmt.Errorf("only hosts enrolled with an ephemeral join key can unenroll themselves")
+var ErrNotEphemeral = fmt.Errorf("only ephemeral hosts can unenroll themselves")
 
 type ConfigMeta struct {
 	Org          ConfigOrg
