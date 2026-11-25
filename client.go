@@ -542,10 +542,6 @@ func verifySignature(resp []byte, creds keys.Credentials) (message.SignedRespons
 	return resultWrapper, nil
 }
 
-// unboundResponseTypes are the signed commands that still accept a version 1 response, which is
-// not bound to its request, from an API that predates version 2.
-var unboundResponseTypes = []string{message.Reauthenticate, message.DoUpdate, message.DoConfigUpdate}
-
 // postError is a postSignedDNClient failure to make the call, as opposed to a response that
 // failed verification.
 type postError struct{ error }
@@ -582,19 +578,8 @@ func verifyResponse(resp []byte, reqType string, nonce []byte, creds keys.Creden
 		return nil, err
 	}
 
-	if v := resultWrapper.Data.Version; v == 1 {
-		if !slices.Contains(unboundResponseTypes, reqType) {
-			return nil, fmt.Errorf("%s requires a version 2 signed response, got version 1", reqType)
-		}
-		// The outer version is unsigned, so a signed version 2 envelope could be relabeled version 1
-		// to drop its binding. No command response has a top-level version, and every envelope does.
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(resultWrapper.Data.Message, &fields) == nil && fields["version"] != nil {
-			return nil, fmt.Errorf("version 1 signed response carries a version 2 envelope")
-		}
-		return resultWrapper.Data.Message, nil
-	} else if v != 2 {
-		return nil, fmt.Errorf("unsupported signed response version %d", v)
+	if v := resultWrapper.Data.Version; v != 2 {
+		return nil, fmt.Errorf("%s requires a version 2 signed response, got version %d", reqType, v)
 	}
 
 	var env message.SignedResponseEnvelope

@@ -312,7 +312,7 @@ func TestDoUpdate(t *testing.T) {
 				IPAddress: "192.168.100.2",
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		nk, err := keys.New()
 		require.NoError(t, err)
@@ -327,7 +327,7 @@ func TestDoUpdate(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -367,7 +367,7 @@ func TestDoUpdate(t *testing.T) {
 				IPAddress: "192.168.100.2",
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
 		// we are rejecting the update. reset the key
@@ -376,7 +376,7 @@ func TestDoUpdate(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -432,11 +432,11 @@ func TestDoUpdate(t *testing.T) {
 				ExpiresAt: nil,
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -551,11 +551,11 @@ func TestDoConfigUpdate(t *testing.T) {
 				ExpiresAt: &oidcExpiresAt,
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -687,7 +687,7 @@ func TestDoUpdate_P256(t *testing.T) {
 			Counter: 2,
 			Nonce:   dnapitest.GetNonce(r),
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		nk, err := keys.New()
 		require.NoError(t, err)
@@ -709,7 +709,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -733,7 +733,7 @@ func TestDoUpdate_P256(t *testing.T) {
 			Counter: 0,
 			Nonce:   dnapitest.GetNonce(r),
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		// XXX the mock server will update the host pubkey for us, but this is problematic because
 		// we are rejecting the update. reset the key
@@ -753,7 +753,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -793,7 +793,7 @@ func TestDoUpdate_P256(t *testing.T) {
 				IPAddress: "192.168.100.2",
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 		hashed := sha256.Sum256(rawRes)
 		sig, err := ecdsa.SignASN1(rand.Reader, caPrivkey, hashed[:])
 		if err != nil {
@@ -807,7 +807,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -1143,11 +1143,11 @@ func TestReauthenticate(t *testing.T) {
 		newConfigResponse := message.ReauthenticateResponse{
 			LoginURL: "https://auth.example.com/login?authcode=123",
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -1179,13 +1179,18 @@ func signResponse(t *testing.T, caKey keys.PrivateKey, version int, msg []byte) 
 
 // signedResponseV2 returns a version 2 signed response to r for hostID carrying value.
 func signedResponseV2(t *testing.T, caKey keys.PrivateKey, r message.RequestWrapper, hostID string, value any) []byte {
-	return signResponse(t, caKey, 2, jsonMarshal(message.SignedResponseEnvelope{
+	return signResponse(t, caKey, 2, envelopeV2(r, hostID, value))
+}
+
+// envelopeV2 returns the message of a version 2 signed response to r for hostID carrying value.
+func envelopeV2(r message.RequestWrapper, hostID string, value any) []byte {
+	return jsonMarshal(message.SignedResponseEnvelope{
 		Version: 2,
 		Nonce:   r.Nonce,
 		HostID:  hostID,
 		Type:    r.Type,
 		Value:   jsonMarshal(value),
-	}))
+	})
 }
 
 func jsonMarshal(v interface{}) []byte {
@@ -1728,11 +1733,11 @@ func TestDoUpdate_PluralMeta(t *testing.T) {
 				IPAddresses: hostIPs,
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -2024,18 +2029,12 @@ func TestSignedResponseV2(t *testing.T) {
 			require.NoError(t, err)
 			assert.EqualValues(t, 3, creds.Counter)
 
-			// The outer version is unsigned, so a genuine version 2 response can be relabeled version 1.
+			// A version 1 response is not bound to its request, so no signed command accepts one.
 			ts.ExpectDNClientRequest(message.Reauthenticate, http.StatusOK, func(r message.RequestWrapper) []byte {
-				return signResponse(t, caKey, 1, jsonMarshal(message.SignedResponseEnvelope{
-					Version: 2,
-					Nonce:   r.Nonce,
-					HostID:  creds.HostID,
-					Type:    r.Type,
-					Value:   jsonMarshal(message.ReauthenticateResponse{LoginURL: "https://example.com/login"}),
-				}))
+				return signResponse(t, caKey, 1, jsonMarshal(message.ReauthenticateResponse{LoginURL: "https://example.com/login"}))
 			})
 			_, err = c.Reauthenticate(ctx, *creds)
-			assert.EqualError(t, err, "version 1 signed response carries a version 2 envelope")
+			assert.EqualError(t, err, "Reauthenticate requires a version 2 signed response, got version 1")
 
 			// Each negative case changes one thing in an otherwise valid, correctly signed response.
 			envelope := func(r message.RequestWrapper) message.SignedResponseEnvelope {
@@ -2087,7 +2086,7 @@ func TestSignedResponseV2(t *testing.T) {
 				}, "envelope version 3"},
 				{"unknown outer version", func(r message.RequestWrapper) []byte {
 					return signResponse(t, caKey, 3, jsonMarshal(envelope(r)))
-				}, "unsupported signed response version 3"},
+				}, "got version 3"},
 				{"version 1 unenroll", func(r message.RequestWrapper) []byte {
 					return signResponse(t, caKey, 1, jsonMarshal(message.UnenrollResponse{HostID: creds.HostID}))
 				}, "requires a version 2 signed response"},
@@ -2107,22 +2106,16 @@ func TestSignedResponseV2(t *testing.T) {
 
 			// Run last: the mock server adopts the new key of a DoUpdate it answers, even a rejected one.
 			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
-				return signResponse(t, caKey, 1, jsonMarshal(message.SignedResponseEnvelope{
-					Version: 2,
-					Nonce:   r.Nonce,
-					HostID:  creds.HostID,
-					Type:    r.Type,
-					Value: jsonMarshal(message.DoUpdateResponse{
-						Config:      dnapitest.NebulaCfg(caPEM),
-						Counter:     4,
-						Nonce:       r.Nonce,
-						TrustedKeys: ca.MarshalPublicKeyPEM(),
-					}),
+				return signResponse(t, caKey, 1, jsonMarshal(message.DoUpdateResponse{
+					Config:      dnapitest.NebulaCfg(caPEM),
+					Counter:     4,
+					Nonce:       dnapitest.GetNonce(r),
+					TrustedKeys: ca.MarshalPublicKeyPEM(),
 				}))
 			})
 			_, _, _, _, err = c.DoUpdate(ctx, *creds)
 			// Only failures to make the call carry the API call prefix.
-			assert.EqualError(t, err, "version 1 signed response carries a version 2 envelope")
+			assert.EqualError(t, err, "DoUpdate requires a version 2 signed response, got version 1")
 
 			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, nil)
 			_, _, _, _, err = c.DoUpdate(ctx, *creds)
