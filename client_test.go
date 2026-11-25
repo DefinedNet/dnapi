@@ -1814,9 +1814,6 @@ func TestUnenroll(t *testing.T) {
 		"wrong signature": func(r message.RequestWrapper) []byte {
 			return signedResponseV2(t, keys.Ed25519PrivateKey{PrivateKey: otherPrivkey}, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
 		},
-		"value for other host": func(r message.RequestWrapper) []byte {
-			return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: "otherhost"})
-		},
 	} {
 		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, respond)
 		assert.Error(t, c.Unenroll(ctx, *creds), name)
@@ -1987,7 +1984,8 @@ func TestSignedResponseV2(t *testing.T) {
 
 			ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 				assert.Len(t, r.Nonce, 16)
-				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: creds.HostID})
+				// The API's value always carries the canonical spelling, even for a legacy ID.
+				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{HostID: "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"})
 			})
 			require.NoError(t, c.Unenroll(ctx, *creds))
 

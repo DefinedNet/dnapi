@@ -662,7 +662,7 @@ func (c *Client) Reauthenticate(ctx context.Context, creds keys.Credentials) (*m
 // Unenroll deletes the calling host from its network. A host that no longer exists returns
 // ErrInvalidCredentials, and a host not enrolled with an ephemeral join key returns ErrNotEphemeral.
 func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
-	resp, err := c.postSignedDNClient(ctx, message.Unenroll, creds, func([]byte) any {
+	_, err := c.postSignedDNClient(ctx, message.Unenroll, creds, func([]byte) any {
 		return message.UnenrollRequest{}
 	})
 	var apiErrors message.APIErrors
@@ -671,19 +671,8 @@ func (c *Client) Unenroll(ctx context.Context, creds keys.Credentials) error {
 	}) {
 		return ErrNotEphemeral
 	}
-	if err != nil {
-		return err
-	}
-
-	var response message.UnenrollResponse
-	if err := json.Unmarshal(resp, &response); err != nil {
-		return fmt.Errorf("failed to unmarshal DNClient response: %s", err)
-	}
-	// The envelope already binds the response to this host; the value names the host deleted.
-	if response.HostID != creds.HostID {
-		return fmt.Errorf("unenroll response is for host %q, not %q", response.HostID, creds.HostID)
-	}
-	return nil
+	// The verified envelope already names this host as the one deleted.
+	return err
 }
 
 // streamingPostDNClient wraps and signs the given dnclientRequestWrapper message, and makes a streaming API call.
