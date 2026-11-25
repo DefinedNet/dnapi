@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1915,8 +1916,18 @@ func TestNormalizeIssuer(t *testing.T) {
 func TestSignedResponseV2(t *testing.T) {
 	t.Parallel()
 
-	for _, curve := range []message.NetworkCurve{message.NetworkCurve25519, message.NetworkCurveP256} {
-		t.Run(string(curve), func(t *testing.T) {
+	for _, tt := range []struct {
+		curve  message.NetworkCurve
+		hostID string
+	}{
+		{message.NetworkCurve25519, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		{message.NetworkCurveP256, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		// Hosts enrolled before prefixed IDs keep this spelling, which the API echoes as sent.
+		{message.NetworkCurve25519, "3q2-7_7erb7v7q3e3q2-7w"},
+		{message.NetworkCurveP256, "3q2-7_7erb7v7q3e3q2-7w"},
+	} {
+		curve := tt.curve
+		t.Run(string(curve)+"/"+tt.hostID, func(t *testing.T) {
 			t.Parallel()
 
 			useragent := "testClient"
@@ -1943,7 +1954,7 @@ func TestSignedResponseV2(t *testing.T) {
 				require.NoError(t, err)
 				return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
 					Data: message.EnrollResponseData{
-						HostID:      "foobar",
+						HostID:      tt.hostID,
 						Counter:     1,
 						Config:      cfg,
 						TrustedKeys: ca.MarshalPublicKeyPEM(),
@@ -1956,6 +1967,7 @@ func TestSignedResponseV2(t *testing.T) {
 			defer cancel()
 			_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 			require.NoError(t, err)
+			require.Equal(t, tt.hostID, creds.HostID)
 
 			// Unsigned commands keep the version 1 request with no nonce.
 			ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
@@ -2120,4 +2132,31 @@ func TestSignedResponseV2(t *testing.T) {
 			assert.Equal(t, 0, ts.RequestsRemaining())
 		})
 	}
+}
+
+// TestSignRequestNonce pins the request wrapper's nonce key, which the API reads by name, and keeps
+// it out of SignRequestV1 requests, whose callers parse version 1 responses themselves.
+func TestSignRequestNonce(t *testing.T) {
+	t.Parallel()
+
+	k, err := keys.New()
+	require.NoError(t, err)
+
+	wrapperFields := func(body []byte) map[string]json.RawMessage {
+		var req message.RequestV1
+		require.NoError(t, json.Unmarshal(body, &req))
+		raw, err := base64.StdEncoding.DecodeString(req.Message)
+		require.NoError(t, err)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &fields))
+		return fields
+	}
+
+	body, err := signRequest(message.Unenroll, []byte("{}"), []byte{1, 2, 3}, "host-1", 1, k.HostEd25519PrivateKey)
+	require.NoError(t, err)
+	assert.JSONEq(t, `"AQID"`, string(wrapperFields(body)["nonce"]))
+
+	body, err = SignRequestV1(message.Unenroll, []byte("{}"), "host-1", 1, k.HostEd25519PrivateKey)
+	require.NoError(t, err)
+	assert.NotContains(t, wrapperFields(body), "nonce")
 }
