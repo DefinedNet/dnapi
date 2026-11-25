@@ -586,6 +586,12 @@ func verifyResponse(resp []byte, reqType string, nonce []byte, creds keys.Creden
 		if !slices.Contains(unboundResponseTypes, reqType) {
 			return nil, fmt.Errorf("%s requires a version 2 signed response, got version 1", reqType)
 		}
+		// The outer version is unsigned, so a signed version 2 envelope could be relabeled version 1
+		// to drop its binding. No command response has a top-level version, and every envelope does.
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(resultWrapper.Data.Message, &fields) == nil && fields["version"] != nil {
+			return nil, fmt.Errorf("version 1 signed response carries a version 2 envelope")
+		}
 		return resultWrapper.Data.Message, nil
 	} else if v != 2 {
 		return nil, fmt.Errorf("unsupported signed response version %d", v)

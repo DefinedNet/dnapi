@@ -2010,6 +2010,19 @@ func TestSignedResponseV2(t *testing.T) {
 			require.NoError(t, err)
 			assert.EqualValues(t, 3, creds.Counter)
 
+			// The outer version is unsigned, so a genuine version 2 response can be relabeled version 1.
+			ts.ExpectDNClientRequest(message.Reauthenticate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				return signResponse(t, caKey, 1, jsonMarshal(message.SignedResponseEnvelope{
+					Version: 2,
+					Nonce:   r.Nonce,
+					HostID:  creds.HostID,
+					Type:    r.Type,
+					Value:   jsonMarshal(message.ReauthenticateResponse{LoginURL: "https://example.com/login"}),
+				}))
+			})
+			_, err = c.Reauthenticate(ctx, *creds)
+			assert.EqualError(t, err, "version 1 signed response carries a version 2 envelope")
+
 			// Each negative case changes one thing in an otherwise valid, correctly signed response.
 			envelope := func(r message.RequestWrapper) message.SignedResponseEnvelope {
 				return message.SignedResponseEnvelope{
@@ -2077,6 +2090,31 @@ func TestSignedResponseV2(t *testing.T) {
 					assert.ErrorContains(t, err, tc.wantErr, tc.name)
 				}
 			}
+
+			// Run last: the mock server adopts the new key of a DoUpdate it answers, even a rejected one.
+			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				return signResponse(t, caKey, 1, jsonMarshal(message.SignedResponseEnvelope{
+					Version: 2,
+					Nonce:   r.Nonce,
+					HostID:  creds.HostID,
+					Type:    r.Type,
+					Value: jsonMarshal(message.DoUpdateResponse{
+						Config:      dnapitest.NebulaCfg(caPEM),
+						Counter:     4,
+						Nonce:       r.Nonce,
+						TrustedKeys: ca.MarshalPublicKeyPEM(),
+					}),
+				}))
+			})
+			_, _, _, _, err = c.DoUpdate(ctx, *creds)
+			// Only failures to make the call carry the API call prefix.
+			assert.EqualError(t, err, "version 1 signed response carries a version 2 envelope")
+
+			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, nil)
+			_, _, _, _, err = c.DoUpdate(ctx, *creds)
+			assert.ErrorIs(t, err, ErrInvalidCredentials)
+			assert.ErrorContains(t, err, "failed to make API call to Defined Networking: ")
+			assert.Len(t, ts.Errors(), 1, "the old key is now rejected")
 
 			assert.Empty(t, ts.Errors())
 			assert.Equal(t, 0, ts.RequestsRemaining())
