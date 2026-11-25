@@ -356,8 +356,10 @@ func (c *Client) DoUpdate(ctx context.Context, creds keys.Credentials) ([]byte, 
 		msg.Nonce = nonce
 		return msg
 	})
-	if err != nil {
+	if errors.As(err, new(postError)) {
 		return nil, nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
+	} else if err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	// Consume the verified message
@@ -455,8 +457,10 @@ func (c *Client) DoConfigUpdate(ctx context.Context, creds keys.Credentials) ([]
 		msg.Nonce = nonce
 		return msg
 	})
-	if err != nil {
+	if errors.As(err, new(postError)) {
 		return nil, nil, nil, fmt.Errorf("failed to make API call to Defined Networking: %w", err)
+	} else if err != nil {
+		return nil, nil, nil, err
 	}
 
 	// Consume the verified message
@@ -542,6 +546,12 @@ func verifySignature(resp []byte, creds keys.Credentials) (message.SignedRespons
 // not bound to its request, from an API that predates version 2.
 var unboundResponseTypes = []string{message.Reauthenticate, message.DoUpdate, message.DoConfigUpdate}
 
+// postError is a postSignedDNClient failure to make the call, as opposed to a response that
+// failed verification.
+type postError struct{ error }
+
+func (e postError) Unwrap() error { return e.error }
+
 // postSignedDNClient makes a signed command call bound to a fresh nonce, which value receives so
 // a command can also carry it in its own request. It returns the verified command response.
 func (c *Client) postSignedDNClient(ctx context.Context, reqType string, creds keys.Credentials, value func(nonce []byte) any) ([]byte, error) {
@@ -553,12 +563,12 @@ func (c *Client) postSignedDNClient(ctx context.Context, reqType string, creds k
 
 	postBody, err := signRequest(reqType, blob, n, creds.HostID, creds.Counter, creds.PrivateKey)
 	if err != nil {
-		return nil, err
+		return nil, postError{err}
 	}
 
 	resp, err := c.postDNClientBody(ctx, postBody)
 	if err != nil {
-		return nil, err
+		return nil, postError{err}
 	}
 
 	return verifyResponse(resp, reqType, n, creds)
