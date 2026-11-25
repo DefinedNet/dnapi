@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/DefinedNet/dnapi/dnapitest"
@@ -1065,6 +1066,184 @@ func TestStreamCommandResponse(t *testing.T) {
 
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining(), ts.ExpectedRequests())
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// newTestStream starts a CommandResponse stream whose server side is rt.
+func newTestStream(t *testing.T, ctx context.Context, rt http.RoundTripper) *StreamController {
+	t.Helper()
+	k, err := keys.New()
+	require.NoError(t, err)
+	c := NewClient("testClient", "http://dnapi.invalid")
+	c.streamingClient.Transport = rt
+	sc, err := c.StreamCommandResponse(ctx, keys.Credentials{HostID: "host", PrivateKey: k.HostP256PrivateKey, Counter: 1}, "responseToken")
+	require.NoError(t, err)
+	return sc
+}
+
+func testStreamResponse(req *http.Request, status int, body io.Reader) *http.Response {
+	return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(body), Request: req}
+}
+
+func TestStreamControllerResponse(t *testing.T) {
+	t.Parallel()
+
+	errorsBody := string(jsonMarshal(message.APIResponse[struct{}]{
+		Errors: message.APIResponseErrors{{Code: "ERR_REJECTED", Message: "rejected"}},
+	}))
+	isRejected := func(t *testing.T, err error) {
+		var apiErrs message.APIErrors
+		require.ErrorAs(t, err, &apiErrs)
+		assert.Equal(t, "ERR_REJECTED", apiErrs[0].Code)
+	}
+	isReadErr := func(t *testing.T, err error) {
+		assert.ErrorContains(t, err, "failed to read the response body")
+	}
+
+	for _, tt := range []struct {
+		name   string
+		status int
+		body   string
+		// cut fails the body read after body, like a connection dropped mid-response.
+		cut       bool
+		wantBytes string
+		check     func(t *testing.T, err error)
+	}{
+		{name: "success", status: http.StatusOK, body: `{"data":{}}`, wantBytes: `{"data":{}}`},
+		{name: "errors array", status: http.StatusBadRequest, body: errorsBody, check: isRejected},
+		{name: "no errors array", status: http.StatusInternalServerError, body: `{"message":"internal"}`, check: func(t *testing.T, err error) {
+			assert.ErrorContains(t, err, "bad status code '500'")
+		}},
+		{name: "truncated errors", status: http.StatusBadRequest, body: errorsBody[:10], cut: true, check: isReadErr},
+		{name: "complete errors then read failure", status: http.StatusBadRequest, body: errorsBody, cut: true, check: isRejected},
+		{name: "401", status: http.StatusUnauthorized, body: errorsBody, check: func(t *testing.T, err error) {
+			assert.ErrorIs(t, err, ErrInvalidCredentials)
+		}},
+		{name: "truncated 401", status: http.StatusUnauthorized, body: errorsBody[:10], cut: true, check: func(t *testing.T, err error) {
+			assert.ErrorIs(t, err, ErrInvalidCredentials)
+		}},
+		{name: "truncated 200", status: http.StatusOK, body: `{"data":`, cut: true, check: isReadErr},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sc := newTestStream(t, context.Background(), roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				var body io.Reader = strings.NewReader(tt.body)
+				if tt.cut {
+					body = io.MultiReader(body, iotest.ErrReader(io.ErrUnexpectedEOF))
+				}
+				return testStreamResponse(req, tt.status, body), nil
+			}))
+
+			respBytes, err := sc.ResponseBytes()
+			_, writeErr := sc.Write([]byte("after the response"))
+			assert.NoError(t, sc.Close())
+			_, closedWriteErr := sc.Write([]byte("after Close"))
+			if tt.check == nil {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantBytes, string(respBytes))
+				// Nothing would ever read these Writes.
+				assert.ErrorIs(t, writeErr, io.ErrClosedPipe)
+				assert.ErrorIs(t, closedWriteErr, io.ErrClosedPipe)
+				assert.NoError(t, sc.Err())
+				return
+			}
+			tt.check(t, err)
+			assert.Equal(t, err, writeErr)
+			assert.Equal(t, err, closedWriteErr)
+			assert.Equal(t, err, sc.Err())
+		})
+	}
+}
+
+func TestStreamControllerEndUnblocksWrite(t *testing.T) {
+	t.Parallel()
+
+	rejected := jsonMarshal(message.APIResponse[struct{}]{
+		Errors: message.APIResponseErrors{{Code: "ERR_REJECTED", Message: "rejected"}},
+	})
+
+	for _, tt := range []struct {
+		name  string
+		end   func(release chan struct{}, cancel context.CancelFunc)
+		check func(t *testing.T, err error)
+	}{
+		{
+			name: "server rejects",
+			end:  func(release chan struct{}, _ context.CancelFunc) { close(release) },
+			check: func(t *testing.T, err error) {
+				var apiErrs message.APIErrors
+				require.ErrorAs(t, err, &apiErrs)
+				assert.Equal(t, "ERR_REJECTED", apiErrs[0].Code)
+			},
+		},
+		{
+			name: "context canceled",
+			end:  func(_ chan struct{}, cancel context.CancelFunc) { cancel() },
+			check: func(t *testing.T, err error) {
+				assert.ErrorIs(t, err, context.Canceled)
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			release := make(chan struct{})
+			inFlight := make(chan struct{})
+			sc := newTestStream(t, ctx, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				// Read one byte at a time through the first streamed byte, so the Write that sent it
+				// still has an unread byte, then stop reading the body for good.
+				buf := make([]byte, 1)
+				for {
+					if _, err := io.ReadFull(req.Body, buf); err != nil {
+						return nil, err
+					}
+					if buf[0] == 0 {
+						break
+					}
+				}
+				close(inFlight)
+				select {
+				case <-release:
+					return testStreamResponse(req, http.StatusBadRequest, bytes.NewReader(rejected)), nil
+				case <-req.Context().Done():
+					return nil, req.Context().Err()
+				}
+			}))
+
+			written := make(chan error, 1)
+			go func() {
+				_, err := sc.Write([]byte{0, 1})
+				written <- err
+			}()
+			select {
+			case <-inFlight:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the server never read the first streamed byte")
+			}
+			select {
+			case err := <-written:
+				t.Fatalf("Write returned %v with a byte unread", err)
+			default:
+			}
+
+			tt.end(release, cancel)
+			select {
+			case err := <-written:
+				tt.check(t, err)
+				assert.Equal(t, err, sc.Err())
+			case <-time.After(5 * time.Second):
+				t.Fatal("Write still blocked after the request ended")
+			}
+			assert.NoError(t, sc.Close())
+			tt.check(t, sc.Err())
+		})
+	}
 }
 
 func TestReauthenticate(t *testing.T) {

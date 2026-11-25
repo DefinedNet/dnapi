@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/DefinedNet/dnapi/keys"
@@ -666,39 +665,46 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	sc := &StreamController{w: pw, done: done}
 
 	go func() {
-		defer close(done)
-
-		resp, err := c.streamingClient.Do(req)
-		if err != nil {
-			sc.err.Store(fmt.Errorf("failed to call dnclient endpoint: %w", err))
-			return
-		}
-		defer resp.Body.Close()
-
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			sc.err.Store(fmt.Errorf("failed to read the response body: %s", err))
-		}
-
-		switch resp.StatusCode {
-		case http.StatusOK:
-			sc.respBytes = respBody
-		case http.StatusUnauthorized:
-			sc.err.Store(ErrInvalidCredentials)
-		default:
-			var errors struct {
-				Errors message.APIResponseErrors
-			}
-			// Err() is nil for JSON without an errors array, and storing nil panics.
-			if err := json.Unmarshal(respBody, &errors); err != nil || len(errors.Errors) == 0 {
-				sc.err.Store(fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(respBody)))
-			} else {
-				sc.err.Store(errors.Errors.Err())
-			}
-		}
+		sc.respBytes, sc.err = c.doStreamingRequest(req)
+		close(done)
+		// The request is over, so fail any pending or later Write with its error (io.ErrClosedPipe after a
+		// success) rather than leave it blocked on a pipe nothing reads. This follows close(done) so Err
+		// already reports the error when that Write returns.
+		pr.CloseWithError(sc.err)
 	}()
 
 	return sc, nil
+}
+
+// doStreamingRequest sends req and returns the response body, or the error the request ended with.
+func (c *Client) doStreamingRequest(req *http.Request) ([]byte, error) {
+	resp, err := c.streamingClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call dnclient endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrInvalidCredentials
+	}
+	if resp.StatusCode != http.StatusOK {
+		var apiResp struct {
+			Errors message.APIResponseErrors
+		}
+		// A body that parses is complete even if the read then failed, and its errors say more than the read error.
+		if json.Unmarshal(body, &apiResp) == nil && len(apiResp.Errors) > 0 {
+			return nil, apiResp.Errors.Err()
+		}
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read the response body: %s", readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
+		return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(body))
+	}
+	return body, nil
 }
 
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
@@ -820,32 +826,31 @@ func callAPI[T any](ctx context.Context, c *Client, method string, endpoint stri
 // writing to the request body. The request will be sent when the caller closes the StreamController. The response body
 // can be read by calling ResponseBytes, which will block until the response is received.
 type StreamController struct {
-	w         *io.PipeWriter
+	w *io.PipeWriter
+	// respBytes and err are set once, before done is closed.
 	respBytes []byte
-	err       atomic.Value
+	err       error
 	done      chan struct{}
 }
 
-// Err returns any error that occurred during the streaming request. If the request was successful, Err will return nil.
+// Err returns the error the streaming request ended with, or nil if it succeeded or has not ended yet.
 // Err should be called after Close to ensure the request has completed.
 func (sc *StreamController) Err() error {
-	err := sc.err.Load()
-	if err == nil {
+	select {
+	case <-sc.done:
+		return sc.err
+	default:
 		return nil
 	}
-	return err.(error)
 }
 
-// Write implements the io.Writer interface for StreamController. It writes to the request body. If the StreamController
-// has already encountered an error, it will be returned and nothing will be written.
+// Write implements the io.Writer interface for StreamController. It writes to the request body. Once the request has
+// ended, Write writes nothing and returns the request's error, or io.ErrClosedPipe if it succeeded.
 func (sc *StreamController) Write(p []byte) (int, error) {
-	if sc.Err() != nil {
-		return 0, sc.Err()
-	}
-
 	n, err := sc.w.Write(p)
-	if err != nil {
-		sc.err.Store(err)
+	// After Close, the pipe reports io.ErrClosedPipe rather than the error the read side closed with.
+	if err != nil && sc.Err() != nil {
+		err = sc.Err()
 	}
 	return n, err
 }
@@ -861,8 +866,8 @@ func (sc *StreamController) Close() error {
 // request, ResponseBytes will return the error.
 func (sc *StreamController) ResponseBytes() ([]byte, error) {
 	<-sc.done
-	if sc.Err() != nil {
-		return nil, sc.Err()
+	if sc.err != nil {
+		return nil, sc.err
 	}
 	return sc.respBytes, nil
 }
