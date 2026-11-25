@@ -665,45 +665,46 @@ func (c *Client) streamingPostDNClient(ctx context.Context, reqType string, valu
 	sc := &StreamController{w: pw, done: done}
 
 	go func() {
-		var err error
-		defer func() {
-			sc.err = err
-			close(done)
-			// The request is over, so fail any pending or later Write with its error (io.ErrClosedPipe
-			// after a success) rather than leave it blocked on a pipe nothing reads. This follows
-			// close(done) so Err already reports the error when that Write returns.
-			pr.CloseWithError(err)
-		}()
-
-		resp, doErr := c.streamingClient.Do(req)
-		if doErr != nil {
-			err = fmt.Errorf("failed to call dnclient endpoint: %w", doErr)
-			return
-		}
-		defer resp.Body.Close()
-
-		respBody, readErr := io.ReadAll(resp.Body)
-		var errors struct {
-			Errors message.APIResponseErrors
-		}
-		switch {
-		case resp.StatusCode == http.StatusUnauthorized:
-			err = ErrInvalidCredentials
-		// A body that parses as JSON is complete even if the read then failed, and its errors say
-		// more than the read error.
-		case resp.StatusCode != http.StatusOK && json.Unmarshal(respBody, &errors) == nil && len(errors.Errors) > 0:
-			err = errors.Errors.Err()
-		case readErr != nil:
-			err = fmt.Errorf("failed to read the response body: %s", readErr)
-		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
-		case resp.StatusCode != http.StatusOK:
-			err = fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(respBody))
-		default:
-			sc.respBytes = respBody
-		}
+		sc.respBytes, sc.err = c.doStreamingRequest(req)
+		close(done)
+		// The request is over, so fail any pending or later Write with its error (io.ErrClosedPipe after a
+		// success) rather than leave it blocked on a pipe nothing reads. This follows close(done) so Err
+		// already reports the error when that Write returns.
+		pr.CloseWithError(sc.err)
 	}()
 
 	return sc, nil
+}
+
+// doStreamingRequest sends req and returns the response body, or the error the request ended with.
+func (c *Client) doStreamingRequest(req *http.Request) ([]byte, error) {
+	resp, err := c.streamingClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call dnclient endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrInvalidCredentials
+	}
+	if resp.StatusCode != http.StatusOK {
+		var apiResp struct {
+			Errors message.APIResponseErrors
+		}
+		// A body that parses is complete even if the read then failed, and its errors say more than the read error.
+		if json.Unmarshal(body, &apiResp) == nil && len(apiResp.Errors) > 0 {
+			return nil, apiResp.Errors.Err()
+		}
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read the response body: %s", readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// A proxy or load balancer can answer with JSON that has no errors array; that is still a failure.
+		return nil, fmt.Errorf("dnclient endpoint returned bad status code '%d', body: %s", resp.StatusCode, truncateBody(body))
+	}
+	return body, nil
 }
 
 // postDNClient wraps and signs the given dnclientRequestWrapper message, and makes the API call.
@@ -847,11 +848,9 @@ func (sc *StreamController) Err() error {
 // ended, Write writes nothing and returns the request's error, or io.ErrClosedPipe if it succeeded.
 func (sc *StreamController) Write(p []byte) (int, error) {
 	n, err := sc.w.Write(p)
-	if err != nil {
-		// After Close, the pipe reports io.ErrClosedPipe rather than the error the read side closed with.
-		if rerr := sc.Err(); rerr != nil {
-			return n, rerr
-		}
+	// After Close, the pipe reports io.ErrClosedPipe rather than the error the read side closed with.
+	if err != nil && sc.Err() != nil {
+		err = sc.Err()
 	}
 	return n, err
 }
