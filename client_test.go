@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -311,7 +312,7 @@ func TestDoUpdate(t *testing.T) {
 				IPAddress: "192.168.100.2",
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		nk, err := keys.New()
 		require.NoError(t, err)
@@ -326,7 +327,7 @@ func TestDoUpdate(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -336,7 +337,7 @@ func TestDoUpdate(t *testing.T) {
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds)
-	require.Error(t, err)
+	require.EqualError(t, err, "failed to verify signed API result")
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 	require.Nil(t, newCreds)
@@ -366,7 +367,7 @@ func TestDoUpdate(t *testing.T) {
 				IPAddress: "192.168.100.2",
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		// XXX the mock server will update the ed pubkey for us, but this is problematic because
 		// we are rejecting the update. reset the key
@@ -375,7 +376,7 @@ func TestDoUpdate(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -431,11 +432,11 @@ func TestDoUpdate(t *testing.T) {
 				ExpiresAt: nil,
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -550,11 +551,11 @@ func TestDoConfigUpdate(t *testing.T) {
 				ExpiresAt: &oidcExpiresAt,
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -686,7 +687,7 @@ func TestDoUpdate_P256(t *testing.T) {
 			Counter: 2,
 			Nonce:   dnapitest.GetNonce(r),
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		nk, err := keys.New()
 		require.NoError(t, err)
@@ -708,7 +709,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -718,7 +719,7 @@ func TestDoUpdate_P256(t *testing.T) {
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	cfg, pkey, newCreds, _, err := c.DoUpdate(ctx, *creds)
-	require.Error(t, err)
+	require.EqualError(t, err, "failed to verify signed API result")
 	assert.Empty(t, ts.Errors())
 	assert.Equal(t, 0, ts.RequestsRemaining())
 	require.Nil(t, newCreds)
@@ -732,7 +733,7 @@ func TestDoUpdate_P256(t *testing.T) {
 			Counter: 0,
 			Nonce:   dnapitest.GetNonce(r),
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		// XXX the mock server will update the host pubkey for us, but this is problematic because
 		// we are rejecting the update. reset the key
@@ -752,7 +753,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -792,7 +793,7 @@ func TestDoUpdate_P256(t *testing.T) {
 				IPAddress: "192.168.100.2",
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 		hashed := sha256.Sum256(rawRes)
 		sig, err := ecdsa.SignASN1(rand.Reader, caPrivkey, hashed[:])
 		if err != nil {
@@ -806,7 +807,7 @@ func TestDoUpdate_P256(t *testing.T) {
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: sig,
 			},
@@ -1142,11 +1143,11 @@ func TestReauthenticate(t *testing.T) {
 		newConfigResponse := message.ReauthenticateResponse{
 			LoginURL: "https://auth.example.com/login?authcode=123",
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -1165,6 +1166,31 @@ func TestReauthenticate(t *testing.T) {
 	assert.NotEmpty(t, resp.LoginURL)
 	assert.Equal(t, "https://auth.example.com/login?authcode=123", resp.LoginURL)
 
+}
+
+// signResponse returns a signed response of the given version carrying msg, signed by caKey.
+func signResponse(t *testing.T, caKey keys.PrivateKey, version int, msg []byte) []byte {
+	sig, err := caKey.Sign(msg)
+	require.NoError(t, err)
+	return jsonMarshal(message.SignedResponseWrapper{
+		Data: message.SignedResponse{Version: version, Message: msg, Signature: sig},
+	})
+}
+
+// signedResponseV2 returns a version 2 signed response to r for hostID carrying value.
+func signedResponseV2(t *testing.T, caKey keys.PrivateKey, r message.RequestWrapper, hostID string, value any) []byte {
+	return signResponse(t, caKey, 2, envelopeV2(r, hostID, value))
+}
+
+// envelopeV2 returns the message of a version 2 signed response to r for hostID carrying value.
+func envelopeV2(r message.RequestWrapper, hostID string, value any) []byte {
+	return jsonMarshal(message.SignedResponseEnvelope{
+		Version: 2,
+		Nonce:   r.Nonce,
+		HostID:  hostID,
+		Type:    r.Type,
+		Value:   jsonMarshal(value),
+	})
 }
 
 func jsonMarshal(v interface{}) []byte {
@@ -1707,11 +1733,11 @@ func TestDoUpdate_PluralMeta(t *testing.T) {
 				IPAddresses: hostIPs,
 			},
 		}
-		rawRes := jsonMarshal(newConfigResponse)
+		rawRes := envelopeV2(r, creds.HostID, newConfigResponse)
 
 		return jsonMarshal(message.SignedResponseWrapper{
 			Data: message.SignedResponse{
-				Version:   1,
+				Version:   2,
 				Message:   rawRes,
 				Signature: ed25519.Sign(caPrivkey, rawRes),
 			},
@@ -1779,33 +1805,22 @@ func TestUnenroll(t *testing.T) {
 	_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
 	require.NoError(t, err)
 
-	signedResponse := func(hostID string, key ed25519.PrivateKey) []byte {
-		rawRes := jsonMarshal(message.UnenrollResponse{HostID: hostID})
-		return jsonMarshal(message.SignedResponseWrapper{
-			Data: message.SignedResponse{
-				Version:   1,
-				Message:   rawRes,
-				Signature: ed25519.Sign(key, rawRes),
-			},
-		})
-	}
+	caKey := keys.Ed25519PrivateKey{PrivateKey: caPrivkey}
 
 	ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
 		assert.JSONEq(t, "{}", string(r.Value))
-		return signedResponse(creds.HostID, caPrivkey)
+		return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{})
 	})
 	require.NoError(t, c.Unenroll(ctx, *creds))
 
 	_, otherPrivkey := dnapitest.NebulaCACert()
-	for name, body := range map[string][]byte{
-		"unsigned":        []byte(`{"data":{}}`),
-		"wrong signature": signedResponse(creds.HostID, otherPrivkey),
-		// A replayed response for another host on the same network carries a valid signature.
-		"other host": signedResponse("otherhost", caPrivkey),
+	for name, respond := range map[string]func(r message.RequestWrapper) []byte{
+		"unsigned": func(message.RequestWrapper) []byte { return []byte(`{"data":{}}`) },
+		"wrong signature": func(r message.RequestWrapper) []byte {
+			return signedResponseV2(t, keys.Ed25519PrivateKey{PrivateKey: otherPrivkey}, r, creds.HostID, message.UnenrollResponse{})
+		},
 	} {
-		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
-			return body
-		})
+		ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, respond)
 		assert.Error(t, c.Unenroll(ctx, *creds), name)
 	}
 
@@ -1898,4 +1913,242 @@ func TestNormalizeIssuer(t *testing.T) {
 	} {
 		assert.Equal(t, want, normalizeIssuer(in), in)
 	}
+}
+
+func TestSignedResponseV2(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		curve  message.NetworkCurve
+		hostID string
+	}{
+		{message.NetworkCurve25519, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		{message.NetworkCurveP256, "host-YQ5WCXXPRTTXV2XDQZSKN5BWYQ"},
+		// Hosts enrolled before prefixed IDs keep this spelling, which the API echoes as sent.
+		{message.NetworkCurve25519, "3q2-7_7erb7v7q3e3q2-7w"},
+		{message.NetworkCurveP256, "3q2-7_7erb7v7q3e3q2-7w"},
+	} {
+		curve := tt.curve
+		t.Run(string(curve)+"/"+tt.hostID, func(t *testing.T) {
+			t.Parallel()
+
+			useragent := "testClient"
+			ts := dnapitest.NewServer(useragent)
+			t.Cleanup(func() { ts.Close() })
+
+			var ca cert.Certificate
+			var caKey keys.PrivateKey
+			if curve == message.NetworkCurveP256 {
+				var priv *ecdsa.PrivateKey
+				ca, priv = dnapitest.NebulaCACertP256()
+				caKey = keys.P256PrivateKey{PrivateKey: priv}
+			} else {
+				var priv ed25519.PrivateKey
+				ca, priv = dnapitest.NebulaCACert()
+				caKey = keys.Ed25519PrivateKey{PrivateKey: priv}
+			}
+			caPEM, err := ca.MarshalPEM()
+			require.NoError(t, err)
+
+			c := NewClient(useragent, ts.URL)
+			ts.ExpectEnrollment("foobar", curve, func(req message.EnrollRequest) []byte {
+				cfg, err := yaml.Marshal(m{"pki": m{"ca": string(caPEM)}})
+				require.NoError(t, err)
+				return jsonMarshal(message.APIResponse[message.EnrollResponseData]{
+					Data: message.EnrollResponseData{
+						HostID:      tt.hostID,
+						Counter:     1,
+						Config:      cfg,
+						TrustedKeys: ca.MarshalPublicKeyPEM(),
+						Network:     message.HostNetworkMetadata{Curve: curve},
+					},
+				})
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _, creds, _, err := c.Enroll(ctx, testutil.NewTestLogger(), "foobar", "")
+			require.NoError(t, err)
+			require.Equal(t, tt.hostID, creds.HostID)
+
+			// Unsigned commands keep the version 1 request with no nonce.
+			ts.ExpectDNClientRequest(message.CheckForUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Nil(t, r.Nonce)
+				return jsonMarshal(message.CheckForUpdateResponseWrapper{})
+			})
+			_, err = c.CheckForUpdate(ctx, *creds)
+			require.NoError(t, err)
+
+			ts.ExpectDNClientRequest(message.Reauthenticate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				return signedResponseV2(t, caKey, r, creds.HostID, message.ReauthenticateResponse{LoginURL: "https://example.com/login"})
+			})
+			reauth, err := c.Reauthenticate(ctx, *creds)
+			require.NoError(t, err)
+			assert.Equal(t, "https://example.com/login", reauth.LoginURL)
+
+			ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				return signedResponseV2(t, caKey, r, creds.HostID, message.UnenrollResponse{})
+			})
+			require.NoError(t, c.Unenroll(ctx, *creds))
+
+			// The inner nonce of DoUpdate and DoConfigUpdate is the request nonce.
+			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				assert.Equal(t, r.Nonce, dnapitest.GetNonce(r))
+				return signedResponseV2(t, caKey, r, creds.HostID, message.DoUpdateResponse{
+					Config:      dnapitest.NebulaCfg(caPEM),
+					Network:     message.HostNetworkMetadata{Curve: curve},
+					Counter:     2,
+					Nonce:       dnapitest.GetNonce(r),
+					TrustedKeys: ca.MarshalPublicKeyPEM(),
+				})
+			})
+			var meta *ConfigMeta
+			_, _, creds, meta, err = c.DoUpdate(ctx, *creds)
+			require.NoError(t, err)
+			assert.EqualValues(t, 2, creds.Counter)
+			// TestDoUpdate covers an ephemeral host; this one is not.
+			assert.False(t, meta.Host.Ephemeral)
+
+			ts.ExpectDNClientRequest(message.DoConfigUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				assert.Len(t, r.Nonce, 16)
+				assert.Equal(t, r.Nonce, dnapitest.GetNonce(r))
+				return signedResponseV2(t, caKey, r, creds.HostID, message.DoConfigUpdateResponse{
+					Config:      dnapitest.NebulaCfg(caPEM),
+					Network:     message.HostNetworkMetadata{Curve: curve},
+					Counter:     3,
+					Nonce:       dnapitest.GetNonce(r),
+					TrustedKeys: ca.MarshalPublicKeyPEM(),
+				})
+			})
+			_, creds, _, err = c.DoConfigUpdate(ctx, *creds)
+			require.NoError(t, err)
+			assert.EqualValues(t, 3, creds.Counter)
+
+			// A version 1 response is not bound to its request, so no signed command accepts one.
+			ts.ExpectDNClientRequest(message.Reauthenticate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				return signResponse(t, caKey, 1, jsonMarshal(message.ReauthenticateResponse{LoginURL: "https://example.com/login"}))
+			})
+			_, err = c.Reauthenticate(ctx, *creds)
+			assert.EqualError(t, err, "Reauthenticate requires a version 2 signed response, got version 1")
+
+			// Each negative case changes one thing in an otherwise valid, correctly signed response.
+			envelope := func(r message.RequestWrapper) message.SignedResponseEnvelope {
+				return message.SignedResponseEnvelope{
+					Version: 2,
+					Nonce:   r.Nonce,
+					HostID:  creds.HostID,
+					Type:    r.Type,
+					Value:   jsonMarshal(message.UnenrollResponse{}),
+				}
+			}
+			withoutField := func(field string) func(r message.RequestWrapper) []byte {
+				return func(r message.RequestWrapper) []byte {
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(jsonMarshal(envelope(r)), &fields))
+					require.Contains(t, fields, field)
+					delete(fields, field)
+					return signResponse(t, caKey, 2, jsonMarshal(fields))
+				}
+			}
+			for _, tc := range []struct {
+				name    string
+				respond func(r message.RequestWrapper) []byte
+				wantErr string
+			}{
+				{"valid", func(r message.RequestWrapper) []byte {
+					return signResponse(t, caKey, 2, jsonMarshal(envelope(r)))
+				}, ""},
+				{"wrong nonce", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.Nonce = nonce()
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, "nonce does not match"},
+				// Another host on the network can obtain a response signed by the same CA.
+				{"wrong host", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.HostID = "otherhost"
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, `is for host "otherhost"`},
+				{"wrong type", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.Type = message.Reauthenticate
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, "is for a Reauthenticate request"},
+				{"envelope version mismatch", func(r message.RequestWrapper) []byte {
+					env := envelope(r)
+					env.Version = 3
+					return signResponse(t, caKey, 2, jsonMarshal(env))
+				}, "envelope version 3"},
+				{"unknown outer version", func(r message.RequestWrapper) []byte {
+					return signResponse(t, caKey, 3, jsonMarshal(envelope(r)))
+				}, "got version 3"},
+				{"version 1 unenroll", func(r message.RequestWrapper) []byte {
+					return signResponse(t, caKey, 1, jsonMarshal(message.UnenrollResponse{}))
+				}, "requires a version 2 signed response"},
+				{"missing nonce", withoutField("nonce"), "missing a field"},
+				{"missing hostID", withoutField("hostID"), "missing a field"},
+				{"missing type", withoutField("type"), "missing a field"},
+				{"missing value", withoutField("value"), "missing a field"},
+			} {
+				ts.ExpectDNClientRequest(message.Unenroll, http.StatusOK, tc.respond)
+				err := c.Unenroll(ctx, *creds)
+				if tc.wantErr == "" {
+					assert.NoError(t, err, tc.name)
+				} else {
+					assert.ErrorContains(t, err, tc.wantErr, tc.name)
+				}
+			}
+
+			// Run last: the mock server adopts the new key of a DoUpdate it answers, even a rejected one.
+			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, func(r message.RequestWrapper) []byte {
+				return signResponse(t, caKey, 1, jsonMarshal(message.DoUpdateResponse{
+					Config:      dnapitest.NebulaCfg(caPEM),
+					Counter:     4,
+					Nonce:       dnapitest.GetNonce(r),
+					TrustedKeys: ca.MarshalPublicKeyPEM(),
+				}))
+			})
+			_, _, _, _, err = c.DoUpdate(ctx, *creds)
+			// Only failures to make the call carry the API call prefix.
+			assert.EqualError(t, err, "DoUpdate requires a version 2 signed response, got version 1")
+
+			ts.ExpectDNClientRequest(message.DoUpdate, http.StatusOK, nil)
+			_, _, _, _, err = c.DoUpdate(ctx, *creds)
+			assert.ErrorIs(t, err, ErrInvalidCredentials)
+			assert.ErrorContains(t, err, "failed to make API call to Defined Networking: ")
+			// The only server error is the old key's rejection.
+			assert.Equal(t, []error{errors.New("invalid signature")}, ts.Errors())
+			assert.Equal(t, 0, ts.RequestsRemaining())
+		})
+	}
+}
+
+// TestSignRequestNonce pins the request wrapper's nonce key, which the API reads by name, and keeps
+// it out of SignRequestV1 requests, whose callers parse version 1 responses themselves.
+func TestSignRequestNonce(t *testing.T) {
+	t.Parallel()
+
+	k, err := keys.New()
+	require.NoError(t, err)
+
+	wrapperFields := func(body []byte) map[string]json.RawMessage {
+		var req message.RequestV1
+		require.NoError(t, json.Unmarshal(body, &req))
+		raw, err := base64.StdEncoding.DecodeString(req.Message)
+		require.NoError(t, err)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &fields))
+		return fields
+	}
+
+	body, err := signRequest(message.Unenroll, []byte("{}"), []byte{1, 2, 3}, "host-1", 1, k.HostEd25519PrivateKey)
+	require.NoError(t, err)
+	assert.JSONEq(t, `"AQID"`, string(wrapperFields(body)["nonce"]))
+
+	body, err = SignRequestV1(message.Unenroll, []byte("{}"), "host-1", 1, k.HostEd25519PrivateKey)
+	require.NoError(t, err)
+	assert.NotContains(t, wrapperFields(body), "nonce")
 }

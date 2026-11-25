@@ -36,10 +36,12 @@ type RequestV1 struct {
 
 // RequestWrapper wraps a DNClient request message. It consists of a
 // type and value, with the type string indicating how to interpret the value blob.
+// A request with a Nonce asks for a version 2 SignedResponse that echoes it.
 type RequestWrapper struct {
 	Type      string    `json:"type"`
 	Value     []byte    `json:"value"`
 	Timestamp time.Time `json:"timestamp"`
+	Nonce     []byte    `json:"nonce,omitempty"`
 }
 
 // SignedResponseWrapper contains a response message and a signature to validate inside "data."
@@ -47,11 +49,23 @@ type SignedResponseWrapper struct {
 	Data SignedResponse `json:"data"`
 }
 
-// SignedResponse contains a response message and a signature to validate.
+// SignedResponse contains a response message and a signature to validate. In version 1 the
+// message is the command response; in version 2 it is a SignedResponseEnvelope.
 type SignedResponse struct {
 	Version   int    `json:"version"`
 	Message   []byte `json:"message"`
 	Signature []byte `json:"signature"`
+}
+
+// SignedResponseEnvelope is the signed message of a version 2 SignedResponse. Every host on a
+// network trusts the same CA keys, so the envelope binds the response to one request, host and
+// command. Version repeats the outer version because the outer one is not signed.
+type SignedResponseEnvelope struct {
+	Version int             `json:"version"`
+	Nonce   []byte          `json:"nonce"`
+	HostID  string          `json:"hostID"`
+	Type    string          `json:"type"`
+	Value   json.RawMessage `json:"value"`
 }
 
 // CheckForUpdateResponseWrapper contains a response to CheckForUpdate inside "data."
@@ -149,10 +163,9 @@ type ReauthenticateRequest struct {
 // UnenrollRequest is the request sent for an Unenroll request.
 type UnenrollRequest struct{}
 
-// UnenrollResponse is the signed response message associated with an Unenroll request.
-type UnenrollResponse struct {
-	HostID string `json:"hostID"`
-}
+// UnenrollResponse is the signed response message associated with an Unenroll request. It is
+// empty because the version 2 envelope already names the deleted host.
+type UnenrollResponse struct{}
 
 // ReauthenticateResponse is the response message associated with a Reauthenticate request.
 type ReauthenticateResponse struct {
